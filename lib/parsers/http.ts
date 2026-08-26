@@ -30,26 +30,36 @@ export function isSafeUrl(url: string): boolean {
   }
 }
 
+/** 지정 시간 안에 응답이 없으면 abort하고 null을 반환한다(예외를 던지지 않음). */
+export async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = PARSE_FETCH_TIMEOUT_MS
+): Promise<Response | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+const BOT_USER_AGENT = "Mozilla/5.0 (compatible; SpoonNoteBot/1.0)";
+
 /** 안전 검증 후, 각 리다이렉트 홉도 검증하며 최종 URL까지 따라간다. */
 export async function resolveFinalUrl(url: string, maxRedirects = 5): Promise<string | null> {
   let current = url;
   for (let i = 0; i <= maxRedirects; i++) {
     if (!isSafeUrl(current)) return null;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), PARSE_FETCH_TIMEOUT_MS);
-    let res: Response;
-    try {
-      res = await fetch(current, {
-        redirect: "manual",
-        signal: controller.signal,
-        headers: { "user-agent": "Mozilla/5.0 (compatible; SpoonNoteBot/1.0)" },
-      });
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timeout);
-    }
+    const res = await fetchWithTimeout(current, {
+      redirect: "manual",
+      headers: { "user-agent": BOT_USER_AGENT },
+    });
+    if (!res) return null;
 
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");
@@ -66,20 +76,9 @@ export async function resolveFinalUrl(url: string, maxRedirects = 5): Promise<st
 export async function fetchHtml(url: string): Promise<string | null> {
   if (!isSafeUrl(url)) return null;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PARSE_FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { "user-agent": "Mozilla/5.0 (compatible; SpoonNoteBot/1.0)" },
-    });
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
+  const res = await fetchWithTimeout(url, { headers: { "user-agent": BOT_USER_AGENT } });
+  if (!res || !res.ok) return null;
+  return await res.text();
 }
 
 /** property/name 어느 쪽이든, 속성 순서 상관없이 <meta> content를 뽑는다. */
