@@ -16,6 +16,10 @@ export interface RateLimitRule {
 export const RATE_LIMITS = {
   /** 링크 파싱: 시간당 30회 - 정상 사용엔 충분하고 반복 크롤링만 막는 수준 */
   parse: { endpoint: "parse", limit: 30, windowMs: 60 * 60 * 1000 },
+  /** 보드 생성: 시간당 10회 - 무료 한도(3개)보다 넉넉하지만 스팸은 막는 수준 */
+  createBoard: { endpoint: "createBoard", limit: 10, windowMs: 60 * 60 * 1000 },
+  /** 엔트리 추가: 시간당 60회 - 친구가 같이 채우는 컨셉이라 생성보다 넉넉하게 */
+  addEntry: { endpoint: "addEntry", limit: 60, windowMs: 60 * 60 * 1000 },
 } satisfies Record<string, RateLimitRule>;
 
 // 프록시 체인의 맨 앞이 실제 클라이언트 IP다.

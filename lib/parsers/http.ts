@@ -2,19 +2,22 @@ import { PARSE_FETCH_TIMEOUT_MS } from "../constants";
 
 const BLOCKED_HOSTNAMES = new Set(["localhost", "0.0.0.0", "::1"]);
 
+// 지도 링크는 항상 도메인 이름이라, IP 리터럴 형태는 공개/사설 구분 없이 전부
+// 거부하는 게 우회를 막기 훨씬 간단하고 안전하다(사설 대역만 걸러내면
+// "::ffff:127.0.0.1" 같은 IPv4-매핑 IPv6, 십진수/hex 정수형 표기 등으로
+// 쉽게 우회됨).
 function isPrivateHostname(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
+  // URL의 IPv6 호스트명은 대괄호가 붙어서 온다(예: "[::1]") - 벗기고 판정.
+  const lower = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (BLOCKED_HOSTNAMES.has(lower)) return true;
   if (lower.endsWith(".local")) return true;
 
-  const ipv4 = lower.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ipv4) {
-    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
-    if (a === 127 || a === 10 || a === 0) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-  }
+  if (lower.includes(":")) return true; // IPv6 리터럴
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(lower)) return true; // IPv4 dotted-quad
+  if (/^\d+$/.test(lower)) return true; // 십진수 정수형 IPv4(예: 2130706433)
+  if (/^0x[0-9a-f]+$/.test(lower)) return true; // hex 정수형(예: 0x7f000001)
+  if (/^0o[0-7]+$/.test(lower)) return true; // octal 정수형
+
   return false;
 }
 
@@ -72,12 +75,19 @@ export async function resolveFinalUrl(url: string, maxRedirects = 5): Promise<st
   return null; // 리다이렉트 한도 초과
 }
 
-/** 최종 페이지의 HTML을 안전하게 가져온다(OG/메타 파싱용). */
+/** 최종 페이지의 HTML을 안전하게 가져온다(OG/메타 파싱용).
+ *  redirect는 "manual"로 막는다 - 리다이렉트 추적/홉별 검증은 resolveFinalUrl의
+ *  역할이고, 여기서 넘어오는 url은 이미 검증된 최종 URL이다. 기본값인
+ *  "follow"를 쓰면 그 최종 URL이 다시(예: 내부망으로) 리다이렉트할 때 검증 없이
+ *  따라가버려 SSRF 구멍이 생긴다. */
 export async function fetchHtml(url: string): Promise<string | null> {
   if (!isSafeUrl(url)) return null;
 
-  const res = await fetchWithTimeout(url, { headers: { "user-agent": BOT_USER_AGENT } });
-  if (!res || !res.ok) return null;
+  const res = await fetchWithTimeout(url, {
+    redirect: "manual",
+    headers: { "user-agent": BOT_USER_AGENT },
+  });
+  if (!res || !res.ok || (res.status >= 300 && res.status < 400)) return null;
   return await res.text();
 }
 

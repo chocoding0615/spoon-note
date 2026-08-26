@@ -3,6 +3,7 @@ import { getViewableBoard } from "@/lib/services/boardService";
 import { addEntry, listEntries, reorderEntries } from "@/lib/services/entryService";
 import { NotFoundError, OwnershipError, ValidationError } from "@/lib/services/errors";
 import { OWNER_KEY_HEADER } from "@/lib/constants";
+import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rateLimit";
 import type { Entry, PlaceSource } from "@/lib/types";
 
 interface RouteParams {
@@ -28,6 +29,20 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   const { slug } = await params;
   const ownerKey = request.headers.get(OWNER_KEY_HEADER) ?? undefined;
+
+  const ip = getClientIp(request.headers);
+  const rateLimit = await checkRateLimit(ip, RATE_LIMITS.addEntry);
+  if (!rateLimit.ok) {
+    return NextResponse.json(
+      { error: "요청이 너무 많아요. 잠시 후 다시 시도해주세요." },
+      {
+        status: 429,
+        headers: rateLimit.retryAfterSeconds
+          ? { "Retry-After": String(rateLimit.retryAfterSeconds) }
+          : undefined,
+      }
+    );
+  }
 
   let board;
   try {

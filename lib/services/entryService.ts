@@ -1,5 +1,5 @@
 import { getDb } from "../firebaseAdmin";
-import { LIMITS } from "../constants";
+import { LIMITS, SOURCE_META } from "../constants";
 import { ValidationError, OwnershipError, NotFoundError } from "./errors";
 import type { Board, Entry } from "../types";
 
@@ -36,8 +36,25 @@ export interface AddEntryInput {
   authorName?: string;
 }
 
+const VALID_SOURCES = Object.keys(SOURCE_META) as Entry["source"][];
+
 export async function addEntry(slug: string, input: AddEntryInput): Promise<Entry> {
   await getBoardOrThrow(slug);
+
+  // 요청 shape 매핑(타입 캐스팅)은 라우트가 하지만, 값 자체가 의미상 맞는지는
+  // 서비스 계층에서 검증한다(PLAN.md 원칙 7).
+  if (!VALID_SOURCES.includes(input.source)) {
+    throw new ValidationError("지원하지 않는 출처예요.");
+  }
+  if (input.stars !== undefined && (!Number.isInteger(input.stars) || input.stars < 1 || input.stars > 5)) {
+    throw new ValidationError("별점은 1부터 5 사이여야 해요.");
+  }
+  if (input.lat !== undefined && (input.lat < -90 || input.lat > 90)) {
+    throw new ValidationError("위치 정보가 올바르지 않아요.");
+  }
+  if (input.lng !== undefined && (input.lng < -180 || input.lng > 180)) {
+    throw new ValidationError("위치 정보가 올바르지 않아요.");
+  }
 
   const placeName = input.placeName.trim();
   if (!placeName) throw new ValidationError("장소 이름을 입력해주세요.");
@@ -81,8 +98,16 @@ export async function reorderEntries(slug: string, ownerKey: string, orderedIds:
   if (orderedIds.length === 0) return;
 
   const db = getDb();
+  // orderedIds가 실제로 이 보드 소속 엔트리인지 먼저 확인한다 - 안 그러면 A 보드
+  // ownerKey로 B 보드 엔트리 ID를 섞어 넣어 남의 보드 rank를 조작할 수 있다.
+  // 소속 아닌 ID는 에러 없이 조용히 무시(존재 여부를 유추할 수 있는 단서를 안 줌).
+  const existing = await db.collection(ENTRIES_COLLECTION).where("boardId", "==", slug).get();
+  const ownedIds = new Set(existing.docs.map((doc) => doc.id));
+  const validIds = orderedIds.filter((id) => ownedIds.has(id));
+  if (validIds.length === 0) return;
+
   const batch = db.batch();
-  orderedIds.forEach((id, index) => {
+  validIds.forEach((id, index) => {
     batch.update(db.collection(ENTRIES_COLLECTION).doc(id), { rank: index + 1 });
   });
   await batch.commit();

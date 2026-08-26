@@ -31,7 +31,10 @@ export function BoardDetailClient({
   const pathname = usePathname();
   const [view, setView] = useState<ViewMode>(initialView);
   const [entries, setEntries] = useState(initialEntries);
+  // 마지막으로 서버에 저장된 순서 - dirty 판정 기준(순서 저장 버튼 노출 여부)
+  const [savedOrderIds, setSavedOrderIds] = useState(initialEntries.map((entry) => entry.id));
   const [dialogOpen, setDialogOpen] = useState(false);
+  const dirty = JSON.stringify(entries.map((entry) => entry.id)) !== JSON.stringify(savedOrderIds);
 
   function handleViewChange(next: ViewMode) {
     setView(next);
@@ -54,13 +57,15 @@ export function BoardDetailClient({
     setEntries((prev) => [...prev, data.entry as Entry]);
   }
 
-  async function handleSaveOrder(orderedIds: string[]) {
+  async function handleSaveOrder() {
     if (!ownerKey) return;
+    const orderedIds = entries.map((entry) => entry.id);
     await fetch(`/api/boards/${board.slug}/entries`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", [OWNER_KEY_HEADER]: ownerKey },
       body: JSON.stringify({ orderedIds }),
     });
+    setSavedOrderIds(orderedIds);
   }
 
   return (
@@ -81,7 +86,13 @@ export function BoardDetailClient({
       {view === "map" ? (
         <MapViewLoader entries={entries} />
       ) : (
-        <RankableEntryList entries={entries} editable={isOwner} onSaveOrder={handleSaveOrder} />
+        <RankableEntryList
+          entries={entries}
+          editable={isOwner}
+          dirty={dirty}
+          onReorder={setEntries}
+          onSaveOrder={handleSaveOrder}
+        />
       )}
 
       <AddEntryDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onAdd={handleAddEntry} />

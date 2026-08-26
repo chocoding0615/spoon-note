@@ -148,3 +148,38 @@ Next.js 16(App Router, TS strict) · Tailwind 4 · Leaflet/OSM(카카오맵 SDK 
 - `.env.local`은 이미 채워짐(spoon-note 전용 Firebase 프로젝트) - 로컬에만
   있고 git에는 안 올라감(`.gitignore`의 `.env*` 규칙)
 - Kakao/Google API 키는 선택 — 없으면 주소·좌표 보강 없이 URL에서 뽑은 값만 사용
+
+## 체인지로그
+
+### 2026-08-26 — 외부 코드리뷰 수정 배치 1 (6건)
+
+1. **RankableEntryList props 동기화 버그** - `useState(entries)`로 1회 복사하던
+   구조를 걷어내고 데이터 소유권을 `BoardDetailClient` 하나로 모음(controlled
+   컴포넌트). `RankableEntryList`는 `entries`/`dirty`를 props로만 받고
+   `onReorder`/`onSaveOrder`로 부모에 위임 - 내부엔 `dragIndex`/`saving`
+   같은 순수 UI 상태만 남김. 리스트 뷰에 머문 채 장소를 추가해도 즉시 반영됨
+2. **`fetchHtml` SSRF 구멍(리다이렉트)** - 기본 `redirect:"follow"`라서
+   `resolveFinalUrl`이 검증한 최종 URL이 다시 내부망으로 리다이렉트하면
+   그대로 따라가버림. `redirect:"manual"`로 바꾸고 3xx 응답은 null 처리
+3. **`isPrivateHostname` IP 리터럴 우회** - 사설 대역 dotted-quad만 걸러서
+   `[::ffff:127.0.0.1]`, `2130706433`(십진수), `0x7f000001`(hex) 등이 전부
+   통과했음. 지도 링크는 항상 도메인이므로 IP 리터럴 형태는 공개/사설 구분
+   없이 전부 차단하도록 변경
+4. **`reorderEntries` 수평 권한 우회** - 전달된 엔트리 ID가 해당 보드 소속인지
+   확인 안 해서, A 보드 ownerKey로 B 보드 엔트리 순서를 조작 가능했음.
+   보드 소속 ID 집합을 먼저 조회해 필터링, 소속 아닌 ID는 조용히 무시
+5. **쓰기 API 레이트리밋 부재** - `POST /api/boards`, `POST .../entries`가
+   무제한이라 Firestore 과금 폭탄 위험. `RATE_LIMITS`에 `createBoard`(시간당
+   10회)/`addEntry`(시간당 60회) 추가, `/api/parse`와 동일 패턴(429 +
+   Retry-After) 적용
+6. **엔트리 입력값 의미 검증 누락** - `source`/`stars`/`lat`/`lng`이 타입만
+   맞으면(예: `source:"hacker"`, `stars:99`) 그대로 저장됐음.
+   `entryService.addEntry`에 의미 검증 추가(라우트의 shape 매핑은 그대로 둠)
+
+전부 실제 Firebase 프로젝트에 curl로 재현 후 수정 확인(SSRF 4종 URL 차단,
+레이트리밋 11번째 요청부터 429+Retry-After, 타 보드 엔트리 ID 필터링,
+source/stars/lat 잘못된 값 400 응답). 테스트로 만든 보드는 전부 삭제 정리.
+
+**참고**: 레이트리밋 TTL(만료된 `rateLimits` 문서 자동 정리)은 코드가 아니라
+Firebase 콘솔 작업 - Firestore → 수명(TTL) 정책에서 `rateLimits` 컬렉션의
+`expireAt` 필드를 지정해야 함. 아직 설정 안 함.
