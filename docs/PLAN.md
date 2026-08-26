@@ -58,14 +58,70 @@ Next.js 16(App Router, TS strict) · Tailwind 4 · Leaflet/OSM(카카오맵 SDK 
   추가 구현 불필요). MVP 출시 후 실사용 데이터를 보고 우회 방법(공식 API,
   헤드리스 브라우저 등)을 재검토하기로 함.
 
-### ⏳ 다음 단계 (미착수)
+### ✅ 3단계 — 보드 CRUD
 
-3. 보드 CRUD — `lib/services/boardService.ts`, `app/api/boards/*`, 생성/목록 화면
-4. 엔트리와 보드 상세 — AddEntryDialog, EntryList, MapView(Leaflet), 랭킹 드래그
-5. 공유와 OG — generateMetadata, 공유 버튼, 랜딩 폴리시
+- `lib/services/errors.ts` (`ValidationError`/`OwnershipError`/`NotFoundError`,
+  doc엔 없던 파일이지만 서비스 계층 에러를 라우트에서 타입으로 구분하기 위해 추가)
+- `lib/services/boardService.ts` — 생성(slug 충돌 재시도)/조회/수정/삭제.
+  `getViewableBoard(slug, ownerKey?)`가 visibility 정책의 단일 진입점 -
+  private 보드는 ownerKey 불일치 시 null(→404)을 돌려줘서 **페이지뿐 아니라
+  API로 직접 slug를 알아도 못 보게** 막음(문서엔 페이지 레벨 정책으로만
+  적혀있었지만 API 레벨에서도 동일하게 적용해야 실제로 안전함)
+- `app/api/boards/route.ts`(POST 생성/GET `ownerKeys=` 콤마 목록으로 내 보드
+  일괄 조회), `app/api/boards/[slug]/route.ts`(GET/PATCH/DELETE, 변경은
+  `x-owner-key` 헤더 필요)
+- `app/boards/new/page.tsx`, `app/my/page.tsx` — ownerKey는 계정이 아니라
+  보드별 개별 발급이라 "내 보드"는 로컬에 저장된 slug/ownerKey 쌍을 전부 모아
+  `ownerKeys=` 배치 조회로 구성
+- `lib/utils/ownerKey.ts` — localStorage 저장/조회 + `useOwnedBoards()`
+  (`useSyncExternalStore` 기반). 처음엔 `useEffect`+`setState`로 짰다가
+  `react-hooks/set-state-in-effect`(Next 16 신규 린트 룰)에 걸려서 교체함
+- `LIMITS.freeBoards` 체크는 서버가 아니라 클라이언트(로컬 개수)에서만 -
+  ownerKey가 계정과 무관하므로 서버 단에서 "이 사람이 이미 몇 개 만들었는지"를
+  원천적으로 알 방법이 없음(v0 한계, 우회 가능함을 인지하고 감수)
+
+### ✅ 4단계 — 엔트리와 보드 상세
+
+- `lib/services/entryService.ts` — 추가(freeEntriesPerBoard 제한, rank=max+1)/
+  목록/순서 일괄 저장(PATCH, ownerKey 필요 - §5-4 "드래그 정렬(ownerKey 보유
+  시)"에 따름). 엔트리 추가는 ownerKey 없이도 가능(친구와 공유해서 같이
+  채우는 컨셉이라 방문자 열람 가능한 보드엔 누구나 담을 수 있게 함)
+- `app/api/boards/[slug]/entries/route.ts` — POST/GET/PATCH
+- `components/board/MapView.tsx` + `MapViewLoader.tsx` — leaflet은
+  `next/dynamic`+`ssr:false`로 로드(§1 제약). `ssr:false`는 Client Component
+  안에서만 허용되는 Next 16 제약이라, 서버 페이지가 아니라
+  `MapViewLoader`("use client")가 그 경계를 담당하도록 분리함. 마커는
+  기본 아이콘 대신 `L.divIcon` SVG로 대체(깨짐 방지, §1)
+- `components/entry/EntryCard.tsx`, `AddEntryDialog.tsx`, `RankableEntryList.tsx`
+  — **`EntryList`는 별도로 안 만들었음**: `RankableEntryList`가 `editable`
+  플래그로 드래그 가능/불가능 렌더링을 다 처리해서, 거의 동일한 컴포넌트를
+  하나 더 두는 게 오히려 중복이라 판단(문서 §3 트리와의 의도적 차이)
+- 드래그 정렬은 별도 패키지 없이 네이티브 HTML5 drag&drop 이벤트로 구현
+  (§5-3 "드래그 라이브러리 자유, 번들 가벼운 것 우선"에 따라 0바이트 선택)
+- `components/ui/`에 Textarea/Select/Modal/StarRating 추가(§2-3 원칙에 따라
+  도메인 무관 프리미티브는 ui/로 - §3 트리 주석은 StarRating을 entry/ 밑에
+  적어놨지만 §2-3 규칙이 더 명시적이라 그쪽을 따름)
+
+### ✅ 5단계 — 공유와 OG
+
+- `app/b/[slug]/page.tsx`의 `generateMetadata` — 보드 제목/설명/entryCount 반영
+- `components/board/BoardHeader.tsx` — Web Share API 지원 시 그걸로, 아니면
+  클립보드 복사+토스트. 공유 URL에서 `ownerKey` 쿼리는 제거하고 보냄(안 그러면
+  공유받은 사람이 실수로 소유자 링크를 얻게 됨)
+- 랜딩(`app/page.tsx`)에 "보드 만들기"/"내 보드 보기" 진입 링크 추가
+
+**검증(2026-08-26)**: `npm run build`/`lint` 통과, dev 서버로 모든 페이지·API
+라우트 curl 확인. Firestore가 `.env.local` 없이는 당연히 실패하는데, 그 경우
+전부 500 + 한글 에러 메시지로 깔끔하게 떨어지는 것까지 확인함(크래시 아님).
+**단, 보드 생성→조회→엔트리 추가→지도 렌더링의 실제 성공 경로는 Firebase
+자격증명이 있어야만 끝까지 검증 가능** - 아직 못 함.
 
 ## 실행 전 필요한 것
 
 - `.env.local` 생성 (`.env.example` 참고) — Firebase 서비스 계정 키 3종 없으면
-  보드 저장·레이트리밋이 동작 안 함(파싱 자체는 키 없어도 URL 패턴 추출까지는 됨)
+  보드 생성/조회/엔트리 추가가 전부 500으로 막힘(에러 자체는 깔끔하게 처리됨).
+  **이게 있어야 3~5단계 전체 흐름을 실제로 검증할 수 있음**
 - Kakao/Google API 키는 선택 — 없으면 주소·좌표 보강 없이 URL에서 뽑은 값만 사용
+- 브라우저로 직접 열어서 확인 안 한 것: Leaflet 지도 실제 렌더링, 드래그
+  정렬 UX, 모달 애니메이션/포커스 트랩 - 코드상 문제는 없어 보이지만 실사용
+  확인은 아직임

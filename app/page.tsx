@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { PasteBox } from "@/components/paste/PasteBox";
+import { Button } from "@/components/ui/Button";
 import { SOURCE_META } from "@/lib/constants";
 
 const SUPPORTED_SOURCES = ["naver", "kakao", "google"] as const;
@@ -20,6 +22,15 @@ export default function Home() {
 
         <div className="mt-10 flex justify-center">
           <PasteBox />
+        </div>
+
+        <div className="mt-6 flex items-center gap-3">
+          <Link href="/boards/new">
+            <Button>보드 만들기</Button>
+          </Link>
+          <Link href="/my" className="text-sm font-medium text-stone-500 hover:text-stone-700">
+            내 보드 보기
+          </Link>
         </div>
 
         <div className="mt-10 flex items-center gap-3 text-sm text-stone-400">
