@@ -13,12 +13,12 @@ async function getBoardOrThrow(slug: string): Promise<Board> {
 }
 
 export async function listEntries(slug: string): Promise<Entry[]> {
-  const snap = await getDb()
-    .collection(ENTRIES_COLLECTION)
-    .where("boardId", "==", slug)
-    .orderBy("rank", "asc")
-    .get();
-  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Entry);
+  // where + orderBy를 같이 걸면 Firestore가 복합 색인을 요구한다(프로젝트마다
+  // 콘솔에서 수동 생성 필요). freeEntriesPerBoard(50)로 상한이 있어 정렬은
+  // 메모리에서 처리해도 충분하니, 색인 설정 없이 바로 되게 rank는 JS에서 정렬.
+  const snap = await getDb().collection(ENTRIES_COLLECTION).where("boardId", "==", slug).get();
+  const entries = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Entry);
+  return entries.sort((a, b) => a.rank - b.rank);
 }
 
 export interface AddEntryInput {

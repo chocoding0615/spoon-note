@@ -23,6 +23,18 @@ function getApp(): App {
 let firestore: Firestore | undefined;
 
 export function getDb(): Firestore {
-  if (!firestore) firestore = getFirestore(getApp());
+  if (!firestore) {
+    firestore = getFirestore(getApp());
+    try {
+      // Board/Entry는 선택 필드가 많아 값이 없으면 JS undefined로 남는데,
+      // Firestore는 기본적으로 undefined 필드를 거부한다. 매번 필드별로
+      // undefined를 걸러내는 대신 여기서 한 번에 허용하도록 설정.
+      firestore.settings({ ignoreUndefinedProperties: true });
+    } catch {
+      // dev 서버 핫리로드로 이 모듈이 재평가돼도 firebase-admin 내부의
+      // Firestore 싱글턴은 앱 인스턴스 기준으로 그대로 남아있어 settings()가
+      // "이미 초기화됨"으로 던질 수 있다 - 최초 1회는 이미 적용됐다는 뜻이라 무시.
+    }
+  }
   return firestore;
 }
