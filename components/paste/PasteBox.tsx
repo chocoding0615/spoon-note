@@ -11,7 +11,12 @@ import type { ParsedPlace, ParseResponse } from "@/lib/types";
 
 type Status = "idle" | "loading" | "success" | "manual" | "error";
 
-export function PasteBox() {
+interface PasteBoxProps {
+  /** 파싱 성공(ParsedPlace) 또는 수동 폴백(null)을 부모에게 알린다. AddEntryDialog 등에서 사용. */
+  onParsed?: (place: ParsedPlace | null) => void;
+}
+
+export function PasteBox({ onParsed }: PasteBoxProps = {}) {
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [result, setResult] = useState<ParsedPlace | null>(null);
@@ -43,8 +48,10 @@ export function PasteBox() {
       if (data.parsed) {
         setResult(data.parsed);
         setStatus("success");
+        onParsed?.(data.parsed);
       } else {
         setStatus("manual");
+        onParsed?.(null);
       }
     } catch {
       setErrorMessage("네트워크 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
