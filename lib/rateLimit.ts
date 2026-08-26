@@ -20,6 +20,9 @@ export const RATE_LIMITS = {
   createBoard: { endpoint: "createBoard", limit: 10, windowMs: 60 * 60 * 1000 },
   /** 엔트리 추가: 시간당 60회 - 친구가 같이 채우는 컨셉이라 생성보다 넉넉하게 */
   addEntry: { endpoint: "addEntry", limit: 60, windowMs: 60 * 60 * 1000 },
+  /** 폴더 링크 가져오기: 시간당 10회 - 호출 하나가 내부적으로 여러 번 fetch하는
+   *  무거운 작업이라(네이버는 페이지네이션까지 돎) parse보다 훨씬 낮게 잡는다 */
+  importList: { endpoint: "importList", limit: 10, windowMs: 60 * 60 * 1000 },
 } satisfies Record<string, RateLimitRule>;
 
 // 프록시 체인의 맨 앞이 실제 클라이언트 IP다.

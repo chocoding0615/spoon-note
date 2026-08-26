@@ -20,6 +20,8 @@ export const LIMITS = {
   freeEntriesPerBoard: 50,
   memoMaxLength: 200,
   titleMaxLength: 40,
+  /** 폴더(저장 목록) 링크 한 번 가져오기로 미리보기에 보여줄 최대 개수 */
+  importListMax: 100,
 } as const;
 
 /** /api/parse 외부 fetch(리다이렉트 추적 등) 타임아웃 */

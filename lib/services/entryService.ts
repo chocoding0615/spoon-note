@@ -28,6 +28,7 @@ export interface AddEntryInput {
   lat?: number;
   lng?: number;
   category?: string;
+  photos?: string[];
   sourceUrl?: string;
   memo?: string;
   stars?: Entry["stars"];
@@ -78,6 +79,7 @@ export async function addEntry(slug: string, input: AddEntryInput): Promise<Entr
     lat: input.lat,
     lng: input.lng,
     category: input.category,
+    photos: input.photos,
     sourceUrl: input.sourceUrl,
     memo: input.memo?.trim().slice(0, LIMITS.memoMaxLength) || undefined,
     stars: input.stars,

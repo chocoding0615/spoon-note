@@ -43,7 +43,7 @@ export function BoardDetailClient({
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
-  async function handleAddEntry(input: AddEntryInput) {
+  async function postEntry(input: AddEntryInput): Promise<{ ok: true; entry: Entry } | { ok: false; error?: string }> {
     const res = await fetch(`/api/boards/${board.slug}/entries`, {
       method: "POST",
       headers: {
@@ -52,9 +52,31 @@ export function BoardDetailClient({
       },
       body: JSON.stringify(input),
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      return { ok: false, error: data?.error };
+    }
     const data = await res.json();
-    setEntries((prev) => [...prev, data.entry as Entry]);
+    return { ok: true, entry: data.entry as Entry };
+  }
+
+  async function handleAddEntry(input: AddEntryInput) {
+    const result = await postEntry(input);
+    if (result.ok) setEntries((prev) => [...prev, result.entry]);
+  }
+
+  // 폴더 링크 가져오기(placelist import)의 "선택한 장소 추가"가 쓴다 - 기존
+  // 장소 추가 로직(postEntry)을 그대로 재사용하면서, 몇 개까지 성공했는지/어디서
+  // 멈췄는지(예: freeEntriesPerBoard 상한)를 호출부(ImportListPreview)에 알려준다.
+  async function handleAddManyEntries(inputs: AddEntryInput[]): Promise<{ addedCount: number; error?: string }> {
+    let addedCount = 0;
+    for (const input of inputs) {
+      const result = await postEntry(input);
+      if (!result.ok) return { addedCount, error: result.error };
+      setEntries((prev) => [...prev, result.entry]);
+      addedCount++;
+    }
+    return { addedCount };
   }
 
   async function handleSaveOrder() {
@@ -95,7 +117,14 @@ export function BoardDetailClient({
         />
       )}
 
-      <AddEntryDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onAdd={handleAddEntry} />
+      <AddEntryDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onAdd={handleAddEntry}
+        boardSlug={board.slug}
+        ownerKey={ownerKey}
+        onAddMany={handleAddManyEntries}
+      />
     </main>
   );
 }

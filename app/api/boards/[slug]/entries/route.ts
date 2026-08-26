@@ -70,6 +70,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       lat: typeof data.lat === "number" ? data.lat : undefined,
       lng: typeof data.lng === "number" ? data.lng : undefined,
       category: typeof data.category === "string" ? data.category : undefined,
+      photos: Array.isArray(data.photos) ? data.photos.filter((p): p is string => typeof p === "string") : undefined,
       sourceUrl: typeof data.sourceUrl === "string" ? data.sourceUrl : undefined,
       memo: typeof data.memo === "string" ? data.memo : undefined,
       stars: typeof data.stars === "number" ? (data.stars as Entry["stars"]) : undefined,

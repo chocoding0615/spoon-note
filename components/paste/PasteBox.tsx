@@ -6,53 +6,83 @@ import { Input } from "@/components/ui/Input";
 import { Spinner } from "@/components/ui/Spinner";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { SOURCE_META } from "@/lib/constants";
-import type { ParsedPlace, ParseResponse } from "@/lib/types";
+import { SOURCE_META, OWNER_KEY_HEADER } from "@/lib/constants";
+import type { ParsedPlace, ParseResponse, ImportListResponse } from "@/lib/types";
 
 type Status = "idle" | "loading" | "success" | "manual" | "error";
 
 interface PasteBoxProps {
   /** 파싱 성공(ParsedPlace) 또는 수동 폴백(null)을 부모에게 알린다. AddEntryDialog 등에서 사용. */
   onParsed?: (place: ParsedPlace | null) => void;
+  /** 주어지면(보드 상세 화면 등) 링크를 붙여넣었을 때 폴더(저장 목록) 링크인지
+   *  먼저 확인한다 - 폴더 링크면 onParsed 대신 onParsedList로 알린다. */
+  boardSlug?: string;
+  ownerKey?: string;
+  onParsedList?: (result: ImportListResponse, url: string) => void;
 }
 
-export function PasteBox({ onParsed }: PasteBoxProps = {}) {
+export function PasteBox({ onParsed, boardSlug, ownerKey, onParsedList }: PasteBoxProps = {}) {
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [result, setResult] = useState<ParsedPlace | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
+  async function parseSinglePlace(trimmedUrl: string) {
+    const res = await fetch("/api/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: trimmedUrl }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      setErrorMessage(data?.error ?? "링크를 확인하지 못했어요.");
+      setStatus("error");
+      return;
+    }
+
+    const data = (await res.json()) as ParseResponse;
+    if (data.parsed) {
+      setResult(data.parsed);
+      setStatus("success");
+      onParsed?.(data.parsed);
+    } else {
+      setStatus("manual");
+      onParsed?.(null);
+    }
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!url.trim() || status === "loading") return;
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl || status === "loading") return;
 
     setStatus("loading");
     setErrorMessage("");
     setResult(null);
 
     try {
-      const res = await fetch("/api/parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: url.trim() }),
-      });
+      if (boardSlug) {
+        const res = await fetch(`/api/boards/${boardSlug}/import-list`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(ownerKey ? { [OWNER_KEY_HEADER]: ownerKey } : {}),
+          },
+          body: JSON.stringify({ url: trimmedUrl }),
+        });
+        const data = (await res.json().catch(() => null)) as ImportListResponse | null;
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        setErrorMessage(data?.error ?? "링크를 확인하지 못했어요.");
-        setStatus("error");
-        return;
+        if (data?.isPlacelist) {
+          setStatus("idle");
+          setUrl("");
+          onParsedList?.(data, trimmedUrl);
+          return;
+        }
+        // 폴더 링크가 아니면(또는 요청 자체가 실패했으면) 기존 단일 링크 파싱으로 폴백
       }
 
-      const data = (await res.json()) as ParseResponse;
-      if (data.parsed) {
-        setResult(data.parsed);
-        setStatus("success");
-        onParsed?.(data.parsed);
-      } else {
-        setStatus("manual");
-        onParsed?.(null);
-      }
+      await parseSinglePlace(trimmedUrl);
     } catch {
       setErrorMessage("네트워크 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
       setStatus("error");
