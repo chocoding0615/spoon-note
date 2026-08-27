@@ -6,19 +6,6 @@ import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rateLimit";
 import { LIMITS } from "@/lib/constants";
 
 export async function POST(request: NextRequest) {
-  try {
-    return await handlePost(request);
-  } catch (error) {
-    // 임시 진단(§2026-08-27 프로덕션 500 조사) - 원인 확인되면 제거할 것.
-    console.error("[auth] email/signup 처리 중 예외:", error);
-    return NextResponse.json(
-      { error: "회원가입에 실패했어요.", debug: error instanceof Error ? error.stack : String(error) },
-      { status: 500 }
-    );
-  }
-}
-
-async function handlePost(request: NextRequest) {
   const ip = getClientIp(request.headers);
   const rateLimit = await checkRateLimit(ip, RATE_LIMITS.emailSignup);
   if (!rateLimit.ok) {

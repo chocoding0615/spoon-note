@@ -4,19 +4,6 @@ import { createSessionCookie, makeUid } from "@/lib/session";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rateLimit";
 
 export async function POST(request: NextRequest) {
-  try {
-    return await handlePost(request);
-  } catch (error) {
-    // 임시 진단(§2026-08-27 프로덕션 500 조사) - 원인 확인되면 제거할 것.
-    console.error("[auth] email/login 처리 중 예외:", error);
-    return NextResponse.json(
-      { error: "로그인에 실패했어요.", debug: error instanceof Error ? error.stack : String(error) },
-      { status: 500 }
-    );
-  }
-}
-
-async function handlePost(request: NextRequest) {
   const ip = getClientIp(request.headers);
   const rateLimit = await checkRateLimit(ip, RATE_LIMITS.emailLogin);
   if (!rateLimit.ok) {
