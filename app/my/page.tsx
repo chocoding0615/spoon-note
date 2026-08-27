@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { CreateBoardPasteBox } from "@/components/paste/CreateBoardPasteBox";
 import { Button } from "@/components/ui/Button";
 import { MyBoardsList } from "@/components/board/MyBoardsList";
 import { AccountPanel } from "@/components/account/AccountPanel";
@@ -22,10 +21,10 @@ export default async function MyBoardsPage({ searchParams }: MyPageProps) {
       <AccountPanel session={session} loginError={error === "login_failed"} />
 
       <div className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-stone-500">지도 링크로 보드 만들기</h2>
-        <CreateBoardPasteBox />
+        <h2 className="text-sm font-semibold text-stone-500">보드 만들기</h2>
+        <p className="text-sm text-stone-500">지도 링크를 붙여넣거나 직접 입력해서 보드를 만들어보세요.</p>
         <Link href="/boards/new" className="self-start">
-          <Button variant="ghost">직접 보드 만들기</Button>
+          <Button>보드 만들기</Button>
         </Link>
       </div>
 

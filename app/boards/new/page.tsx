@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
 import { VisibilitySelector } from "@/components/board/VisibilitySelector";
+import { CreateBoardPasteBox } from "@/components/paste/CreateBoardPasteBox";
 import { LIMITS } from "@/lib/constants";
 import { saveOwnerKey, useOwnedBoards } from "@/lib/utils/ownerKey";
 import { getNickname, saveNickname } from "@/lib/utils/nickname";
@@ -75,6 +76,17 @@ export default function NewBoardPage() {
   return (
     <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-6 px-6 py-16">
       <h1 className="text-2xl font-bold text-stone-900">새 보드 만들기</h1>
+
+      <div>
+        <h2 className="mb-2 text-sm font-medium text-stone-700">지도 링크로 빠르게 만들기</h2>
+        <CreateBoardPasteBox />
+      </div>
+
+      <div className="flex items-center gap-3 text-xs text-stone-400">
+        <div className="h-px flex-1 bg-stone-200" />
+        또는 직접 입력
+        <div className="h-px flex-1 bg-stone-200" />
+      </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         <div>
