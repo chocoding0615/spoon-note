@@ -504,6 +504,25 @@ end-to-end로 정상 동작함을 확인. 중간에 프롬프트 7 작업 때 "�
   보드 실 데이터가 없는 상태라 정렬 "순서"까지 여러 건으로 눈으로 보는 E2E는 아직 못 함 -
   실 데이터 쌓이면 재확인 권장
 
+## 프롬프트 11 — 지역별 찜 밀도 지도 뷰
+
+`전달.md`로 받은 작업(2026-08-27). 홈 탭의 "지도로 보기"(프롬프트 10 때는 자리표시
+페이지였음)를 실제 기능으로 완성. 상세 구현/설계 결정/검증은 `전달.md`의 "구현 완료"
+절에 남겨뒀고(다음 프롬프트 오면 덮어써짐), 여기는 영구 요약만.
+
+- 기존 보드 상세 지도(`MapView.tsx`)의 react-leaflet 5 + `L.divIcon` 금색 마커 패턴을
+  그대로 재사용 - 새 의존성 없음
+- **요구사항 5(캐싱)가 핵심**: 신규 `regionStats/{region}` 컬렉션을 만들어서 지역별
+  찜 합계·좌표합을 `recordPlaceSave`/`removePlaceSave`가 saveCount를 바꿀 때마다
+  증분 갱신(이벤트 기반, 크론 없음). 지도는 이 작은 캐시 컬렉션만 읽고 `canonicalPlaces`
+  전체를 스캔·재집계하지 않음
+- `backfillRegionStats()` 추가 - `migratePublicVisibility()`와 같은 1회성 수동 backfill
+  패턴, 배포 전 기존 데이터를 캐시에 채우는 용도(실행해봤는데 지금은 커뮤니티 데이터가
+  없어서 0개 - 정상, 앞으로 저장되는 것부터 자동 반영됨)
+- `npx tsc --noEmit`/`npx eslint .`/`npm run build`/`npx vitest run`(39개) 전부 통과.
+  브라우저 자동화 도구가 없어서 지도 렌더링 자체는 코드 리뷰 수준 검증 - 실 데이터
+  쌓이면 브라우저로 재확인 권장
+
 ## 다른 PC(사무실 등)에서 이어서 작업할 때 체크리스트
 - `git pull`(또는 처음이면 `gh repo clone chocoding0615/spoon-note`)로 코드는 받아짐
 - **`.env.local`은 git에 안 올라감**(`.gitignore`) - Firebase 서비스 계정 키

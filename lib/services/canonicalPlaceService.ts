@@ -9,10 +9,12 @@ import type {
   CanonicalPlaceBoardLink,
   CanonicalPlaceRanking,
   CollectiblePlace,
+  MapPlace,
   PlaceBoardSummary,
   PlaceSaveEvent,
   PlaceSource,
   RegionCentroid,
+  RegionDensity,
   TrendingPlace,
 } from "../types";
 
@@ -20,6 +22,7 @@ const CANONICAL_PLACES_COLLECTION = "canonicalPlaces";
 const BOARD_LINKS_SUBCOLLECTION = "boards";
 const BOARDS_COLLECTION = "boards";
 const SAVE_EVENTS_COLLECTION = "placeSaveEvents";
+const REGION_STATS_COLLECTION = "regionStats";
 
 /** 근사 매칭 후보를 찾기 위해 좌표가 대략 근처인 canonical place를 가져온다.
  *  Firestore에서 위도+경도를 동시에 범위 검색하려면 복합 색인이 필요해서, 위도만
@@ -96,6 +99,11 @@ export async function recordPlaceSave(
   // true가 된다. 같은 보드가 같은 장소를 또 담는 경우(entryIds만 추가)는 신규
   // 찜이 아니므로 이벤트를 남기지 않는다.
   let isNewSave = false;
+  // 지도로 보기(§프롬프트 11)의 지역 밀도 캐시(regionStats) 갱신용 - 새로 만든
+  // canonical place일 때만 좌표를 합산해야(centroid 이중 집계 방지) 해서
+  // isNewSave와 별개로 추적한다.
+  let isNewPlace = false;
+  let regionForStats: string | null = null;
 
   await db.runTransaction(async (tx) => {
     // tx.get()을 Promise.all로 동시에 걸면 Admin SDK 트랜잭션에서 조용히 씹히는
@@ -104,12 +112,19 @@ export async function recordPlaceSave(
     const boardLinkSnap = await tx.get(boardLinkRef);
     const now = Date.now();
 
+    // 기존 place면 등록 당시 고정된 region을 그대로 쓰고(재계산 금지 원칙,
+    // §CanonicalPlace.region 주석과 동일), 새로 만드는 거면 지금 지어준다.
+    regionForStats = canonicalSnap.exists
+      ? ((canonicalSnap.data() as CanonicalPlace).region ?? null)
+      : extractRegion(input.address);
+
     if (!canonicalSnap.exists) {
+      isNewPlace = true;
       const newPlace: CanonicalPlace = {
         placeName: input.placeName,
         lat: input.lat,
         lng: input.lng,
-        region: extractRegion(input.address),
+        region: regionForStats,
         address: input.address,
         category: input.category,
         photos: input.photos,
@@ -152,6 +167,16 @@ export async function recordPlaceSave(
     // 급상승 집계는 부가 기능이라 실패해도 찜 자체는 이미 끝난 뒤다(fail-open) -
     // recordSaveEvent 내부에서 자체적으로 에러를 삼킨다.
     await recordSaveEvent(canonicalId);
+    if (regionForStats) {
+      await incrementRegionStat({
+        region: regionForStats,
+        deltaSaveCount: 1,
+        // 좌표 합산(centroid용)은 이 장소가 이 트랜잭션에서 "처음" 만들어졌을
+        // 때만 - 이미 있던 장소가 다른 보드에 또 찜된 경우 좌표를 또 더하면
+        // 같은 장소가 여러 번 잡혀서 centroid가 왜곡된다.
+        addCoords: isNewPlace && input.lat !== undefined && input.lng !== undefined ? { lat: input.lat, lng: input.lng } : null,
+      });
+    }
   }
 
   return { canonicalId, isNewSave };
@@ -166,6 +191,41 @@ async function recordSaveEvent(canonicalId: string): Promise<void> {
     await getDb().collection(SAVE_EVENTS_COLLECTION).add(event);
   } catch (error) {
     console.error("[canonicalPlaces] 급상승 집계용 이벤트 기록 실패:", error);
+  }
+}
+
+interface RegionStatUpdate {
+  region: string;
+  /** saveCount 합계 증감분 - 새로 찜되면 +1, saveCount가 실제로 줄어들면 -1 */
+  deltaSaveCount: number;
+  /** centroid(지도 중심 좌표) 누적용 - 이 지역에 속한 canonical place가 새로
+   *  생겼을 때만 넘긴다(§recordPlaceSave의 isNewPlace). null이면 좌표 집계는
+   *  건드리지 않는다. */
+  addCoords: { lat: number; lng: number } | null;
+}
+
+/** 지도로 보기(§프롬프트 11)의 지역별 밀도 캐시 - "지역 단위 집계를 매 요청마다
+ *  실시간 계산하면 비용 부담"이라는 요구사항 5에 따라, canonicalPlaces
+ *  컬렉션을 매번 스캔·집계하는 대신 찜 카운트가 실제로 바뀌는 시점(recordPlaceSave/
+ *  removePlaceSave)마다 regionStats/{region} 문서 하나를 증분 갱신해두고
+ *  지도는 이 작은 캐시 컬렉션만 읽는다. `set(..., {merge:true})` + increment라
+ *  문서가 없어도(이 지역의 첫 찜) 안전하게 생성되면서 증가한다. 부가 기능이라
+ *  실패해도 찜 저장 자체는 이미 끝난 뒤다(fail-open). */
+async function incrementRegionStat(update: RegionStatUpdate): Promise<void> {
+  try {
+    const payload: Record<string, unknown> = {
+      region: update.region,
+      totalSaveCount: FieldValue.increment(update.deltaSaveCount),
+      updatedAt: Date.now(),
+    };
+    if (update.addCoords) {
+      payload.latSum = FieldValue.increment(update.addCoords.lat);
+      payload.lngSum = FieldValue.increment(update.addCoords.lng);
+      payload.coordCount = FieldValue.increment(1);
+    }
+    await getDb().collection(REGION_STATS_COLLECTION).doc(update.region).set(payload, { merge: true });
+  } catch (error) {
+    console.error("[canonicalPlaces] 지역 밀도 캐시 갱신 실패:", error);
   }
 }
 
@@ -188,7 +248,11 @@ export async function removePlaceSave(entryId: string, boardId: string, canonica
   const canonicalRef = getDb().collection(CANONICAL_PLACES_COLLECTION).doc(canonicalId);
   const boardLinkRef = canonicalRef.collection(BOARD_LINKS_SUBCOLLECTION).doc(boardId);
 
+  let didDecrement = false;
+  let regionForStats: string | null = null;
+
   await getDb().runTransaction(async (tx) => {
+    const canonicalSnap = await tx.get(canonicalRef);
     const boardLinkSnap = await tx.get(boardLinkRef);
     if (!boardLinkSnap.exists) return;
 
@@ -202,7 +266,15 @@ export async function removePlaceSave(entryId: string, boardId: string, canonica
 
     tx.delete(boardLinkRef);
     tx.update(canonicalRef, { saveCount: FieldValue.increment(-1), updatedAt: Date.now() });
+    didDecrement = true;
+    regionForStats = canonicalSnap.exists ? ((canonicalSnap.data() as CanonicalPlace).region ?? null) : null;
   });
+
+  if (didDecrement && regionForStats) {
+    // 지도 밀도 캐시(§incrementRegionStat) 반대 방향 갱신 - 좌표 합산(centroid)은
+    // canonical place 문서 자체를 안 지우니(재사용 대비) 여기선 건드리지 않는다.
+    await incrementRegionStat({ region: regionForStats, deltaSaveCount: -1, addCoords: null });
+  }
 }
 
 export async function getCanonicalPlace(canonicalId: string): Promise<CanonicalPlace | null> {
@@ -424,4 +496,94 @@ export async function listRegionCentroids(): Promise<RegionCentroid[]> {
     lat: latSum / count,
     lng: lngSum / count,
   }));
+}
+
+/** regionStats는 이 기능이 생긴 이후의 찜/철회에만 반응해서 갱신되니, 이미
+ *  쌓여있던 canonicalPlaces 데이터는 저절로 안 채워진다(§incrementRegionStat).
+ *  배포 직후 한 번 실행해서 기존 데이터 기준으로 캐시를 처음 채우는 용도 -
+ *  `migratePublicVisibility`(boardService.ts)와 같은 "필요할 때 수동 실행하는
+ *  1회성 backfill" 패턴. increment가 아니라 canonicalPlaces 전체를 다시 합산해
+ *  통째로 덮어쓰기(set)라서 여러 번 실행해도 항상 같은 결과(멱등적). */
+export async function backfillRegionStats(): Promise<number> {
+  const snap = await getDb().collection(CANONICAL_PLACES_COLLECTION).select("region", "saveCount", "lat", "lng").get();
+
+  const sums = new Map<string, { totalSaveCount: number; latSum: number; lngSum: number; coordCount: number }>();
+  snap.docs.forEach((doc) => {
+    const data = doc.data() as Pick<CanonicalPlace, "region" | "saveCount" | "lat" | "lng">;
+    if (!data.region) return;
+    const entry = sums.get(data.region) ?? { totalSaveCount: 0, latSum: 0, lngSum: 0, coordCount: 0 };
+    entry.totalSaveCount += data.saveCount;
+    if (data.lat !== undefined && data.lng !== undefined) {
+      entry.latSum += data.lat;
+      entry.lngSum += data.lng;
+      entry.coordCount += 1;
+    }
+    sums.set(data.region, entry);
+  });
+
+  const db = getDb();
+  const batch = db.batch();
+  const now = Date.now();
+  sums.forEach((value, region) => {
+    batch.set(db.collection(REGION_STATS_COLLECTION).doc(region), { region, ...value, updatedAt: now });
+  });
+  await batch.commit();
+
+  return sums.size;
+}
+
+/** 지도로 보기(§프롬프트 11)의 낮은 줌 레벨(전체 지역 조망)용 - regionStats
+ *  캐시 컬렉션만 읽는다(요구사항 5: canonicalPlaces 전체를 매번 스캔·집계하지
+ *  않기 위해 §incrementRegionStat이 미리 쌓아둔 값). 문서 수가 지역 개수만큼이라
+ *  (많아야 수십~수백) 컬렉션 전체를 한 번에 읽어도 부담 없다. */
+export async function listRegionDensity(): Promise<RegionDensity[]> {
+  const snap = await getDb().collection(REGION_STATS_COLLECTION).get();
+
+  return snap.docs
+    .map((doc) => {
+      const data = doc.data() as {
+        region: string;
+        totalSaveCount: number;
+        latSum?: number;
+        lngSum?: number;
+        coordCount?: number;
+      };
+      const hasCoords = (data.coordCount ?? 0) > 0;
+      return {
+        region: data.region,
+        totalSaveCount: data.totalSaveCount,
+        lat: hasCoords ? (data.latSum ?? 0) / (data.coordCount as number) : null,
+        lng: hasCoords ? (data.lngSum ?? 0) / (data.coordCount as number) : null,
+      };
+    })
+    .filter((density) => density.totalSaveCount > 0);
+}
+
+/** 지도로 보기(§프롬프트 11)의 높은 줌 레벨(개별 장소 마커)용 - 좌표와 지역이
+ *  있고 실제로 찜된(saveCount > 0) canonical place만. 지역 필터 없이 전체를
+ *  한 번에 내려주고 확대/축소는 클라이언트에서 처리한다(MVP 규모 전제 -
+ *  §listCommunityFeed와 같은 원칙, 커지면 지도 바운딩 박스 기준 쿼리로 바꿀 것). */
+export async function listMapPlaces(): Promise<MapPlace[]> {
+  const snap = await getDb()
+    .collection(CANONICAL_PLACES_COLLECTION)
+    .select("placeName", "address", "lat", "lng", "region", "saveCount")
+    .get();
+
+  return snap.docs
+    .map((doc) => {
+      const data = doc.data() as Pick<CanonicalPlace, "placeName" | "address" | "lat" | "lng" | "region" | "saveCount">;
+      return {
+        id: doc.id,
+        placeName: data.placeName,
+        address: data.address ?? null,
+        lat: data.lat,
+        lng: data.lng,
+        region: data.region ?? null,
+        saveCount: data.saveCount,
+      };
+    })
+    .filter(
+      (place): place is MapPlace =>
+        place.saveCount > 0 && place.lat !== undefined && place.lng !== undefined
+    );
 }

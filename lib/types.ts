@@ -238,3 +238,25 @@ export interface RegionCentroid {
   lat: number;
   lng: number;
 }
+
+/** 지도로 보기(§프롬프트 11) 낮은 줌 레벨용 - 지역 단위 찜 카운트 합계 버블.
+ *  regionStats 캐시 문서(§canonicalPlaceService.incrementRegionStat)를 그대로
+ *  읽어온 것 - 좌표를 가진 canonical place가 하나도 없는 지역이면 lat/lng가
+ *  null(버블을 지도에 못 찍으니 렌더링 시 걸러냄). */
+export interface RegionDensity {
+  region: string;
+  totalSaveCount: number;
+  lat: number | null;
+  lng: number | null;
+}
+
+/** 지도로 보기(§프롬프트 11) 높은 줌 레벨(지역 버블 -> 개별 장소 전환)용. */
+export interface MapPlace {
+  id: string;
+  placeName: string;
+  address: string | null;
+  lat: number;
+  lng: number;
+  region: string | null;
+  saveCount: number;
+}

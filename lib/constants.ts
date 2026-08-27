@@ -77,3 +77,18 @@ export const TRENDING = {
 
 /** 홈 탭 지역 랭킹 미리보기(§프롬프트 10)에서 보여줄 최대 장소 수 */
 export const HOME_RANKING_PREVIEW_LIMIT = 5;
+
+/** 지도로 보기(§프롬프트 11) 설정값 */
+export const MAP = {
+  /** 이 줌 레벨(포함) 이상이면 지역 버블 대신 개별 장소 마커로 전환.
+   *  기존 보드 상세 지도(§MapView.tsx)의 기본 줌(13)과 맞춰서, 그 확대 정도면
+   *  이미 "동네 안을 보는" 수준이라 개별 장소가 자연스럽다고 판단. */
+  placeZoomThreshold: 13,
+  /** 데이터가 하나도 없을 때(지역 buble이 아예 없을 때)의 기본 중심/줌 - 대한민국 전체가
+   *  대충 보이는 좌표. */
+  fallbackCenter: [36.5, 127.8] as [number, number],
+  fallbackZoom: 7,
+  /** 버블 반경(px) - 찜 카운트 0에 가까울수록 최소, 가장 많은 지역일수록 최대에 수렴 */
+  bubbleMinRadius: 14,
+  bubbleMaxRadius: 46,
+} as const;
