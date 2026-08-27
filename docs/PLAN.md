@@ -183,3 +183,30 @@ source/stars/lat 잘못된 값 400 응답). 테스트로 만든 보드는 전부
 **참고**: 레이트리밋 TTL(만료된 `rateLimits` 문서 자동 정리)은 코드가 아니라
 Firebase 콘솔 작업 - Firestore → 수명(TTL) 정책에서 `rateLimits` 컬렉션의
 `expireAt` 필드를 지정해야 함. 아직 설정 안 함.
+
+### 2026-08-27 — 프로덕션 Firebase 인증 장애 (사후 기록)
+
+배포 후 처음으로 `spoon-note.vercel.app`에 직접 쓰기/읽기(`/api/boards` POST·GET)를
+curl로 테스트해보고 나서야 발견 - **보드 생성/조회가 전부 500으로 완전히 죽어있었음**.
+로컬(`localhost:3001`)은 문제없이 동작해서 코드 문제가 아니라 Vercel 쪽 환경변수
+문제로 좁혀서 진단:
+
+1. 처음엔 `FIREBASE_PRIVATE_KEY` 형식(따옴표 포함 복붙 등)을 의심해서 두 번
+   재입력했지만 무관했음
+2. `firebaseAdmin.ts`에 임시 진단 로그(각 env의 존재 여부/길이만, 값 자체는
+   안 찍음) 추가해서 배포 → Vercel Runtime Logs로 실제 상태 확인
+3. 1차 진단: `FIREBASE_PROJECT_ID`가 비어있었음(발견 즉시 수정) → 에러 메시지가
+   바뀌면서 2차 문제 노출: **`FIREBASE_CLIENT_EMAIL`이 완전히 비어있었음**
+   (firebase-admin의 `cert()`가 필드를 순서대로 검증해서, 첫 번째로 걸리는
+   필드의 에러만 보여주는 바람에 project_id 고치기 전까진 client_email 문제가
+   가려져 있었음)
+4. `FIREBASE_CLIENT_EMAIL` 값 입력 + 재배포로 해결. 실제 서비스 계정 키
+   3개(project_id/client_email/private_key) 중 둘이 동시에 비어있었던 것으로
+   추정 - 최초 등록 시점에 셋 중 일부가 누락된 채 저장됐던 것으로 보임
+5. 원인 확정 후 진단 로그는 제거함(이 커밋 이후)
+
+**교훈**: 배포 후 페이지가 뜬다고 API 라우트(특히 쓰기)까지 정상인 건 보장 안 됨 -
+`NEXT_PUBLIC_SITE_URL` 때도 그랬듯, Vercel의 여러 env 변수 중 하나라도 빈 값으로
+등록되면 페이지는 열려도 Firestore를 건드리는 라우트는 조용히(또는 500으로) 죽을
+수 있음. 새 env 변수 등록/수정 후에는 **프로덕션 도메인에 직접 curl로 쓰기
+경로까지** 확인하는 걸 배포 체크리스트에 넣을 것.
