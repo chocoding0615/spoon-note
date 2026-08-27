@@ -1,12 +1,14 @@
 import type { ParsedPlace } from "../types";
 import type { PlaceParser } from "./types";
-import { resolveFinalUrl } from "./http";
+import { resolveFinalUrl, isHostnameOf } from "./http";
 
 function canHandle(url: string): boolean {
   try {
     const { hostname, pathname } = new URL(url);
     if (hostname === "maps.app.goo.gl") return true;
-    if (hostname.includes("google.") && pathname.includes("/maps/")) return true;
+    // google.com만 허용(다른 국가 TLD는 배제) - 예전엔 hostname.includes("google.")
+    // 라서 "www.google.com.evil.net" 같은 도메인도 통과했다(부분일치 취약점).
+    if (isHostnameOf(hostname, "google.com") && pathname.includes("/maps/")) return true;
     return false;
   } catch {
     return false;

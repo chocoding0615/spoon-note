@@ -27,6 +27,7 @@ interface RankableEntryListProps {
 export function RankableEntryList({ entries, editable, dirty, onReorder, onSaveOrder }: RankableEntryListProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   if (entries.length === 0) {
     return (
@@ -47,8 +48,11 @@ export function RankableEntryList({ entries, editable, dirty, onReorder, onSaveO
 
   async function handleSave() {
     setSaving(true);
+    setSaveError("");
     try {
       await onSaveOrder();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "순서를 저장하지 못했어요.");
     } finally {
       setSaving(false);
     }
@@ -57,7 +61,8 @@ export function RankableEntryList({ entries, editable, dirty, onReorder, onSaveO
   return (
     <div className="flex flex-col gap-3">
       {editable && dirty && (
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-3">
+          {saveError && <p className="text-sm text-red-500">{saveError}</p>}
           <Button onClick={handleSave} disabled={saving}>
             {saving ? "저장 중..." : "순서 저장"}
           </Button>

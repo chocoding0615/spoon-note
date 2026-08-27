@@ -60,9 +60,11 @@ export function BoardDetailClient({
     return { ok: true, entry: data.entry as Entry };
   }
 
-  async function handleAddEntry(input: AddEntryInput) {
+  async function handleAddEntry(input: AddEntryInput): Promise<{ ok: boolean; error?: string }> {
     const result = await postEntry(input);
-    if (result.ok) setEntries((prev) => [...prev, result.entry]);
+    if (!result.ok) return { ok: false, error: result.error };
+    setEntries((prev) => [...prev, result.entry]);
+    return { ok: true };
   }
 
   // 폴더 링크 가져오기(placelist import)의 "선택한 장소 추가"가 쓴다 - 기존
@@ -82,11 +84,17 @@ export function BoardDetailClient({
   async function handleSaveOrder() {
     if (!ownerKey) return;
     const orderedIds = entries.map((entry) => entry.id);
-    await fetch(`/api/boards/${board.slug}/entries`, {
+    const res = await fetch(`/api/boards/${board.slug}/entries`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", [OWNER_KEY_HEADER]: ownerKey },
       body: JSON.stringify({ orderedIds }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      // savedOrderIds를 안 건드려서 dirty가 유지되게 한다 - 저장 버튼이 그대로
+      // 남아있어야 사용자가 실패를 알고 다시 시도할 수 있다.
+      throw new Error(data?.error ?? "순서를 저장하지 못했어요.");
+    }
     setSavedOrderIds(orderedIds);
   }
 

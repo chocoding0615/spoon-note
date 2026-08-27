@@ -27,7 +27,7 @@ export interface AddEntryInput {
 interface AddEntryDialogProps {
   open: boolean;
   onClose: () => void;
-  onAdd: (input: AddEntryInput) => Promise<void>;
+  onAdd: (input: AddEntryInput) => Promise<{ ok: boolean; error?: string }>;
   /** 주어지면 폴더(저장 목록) 링크 붙여넣기를 지원한다(보드 상세 화면에서만 사용). */
   boardSlug?: string;
   ownerKey?: string;
@@ -40,6 +40,7 @@ export function AddEntryDialog({ open, onClose, onAdd, boardSlug, ownerKey, onAd
   const [memo, setMemo] = useState("");
   const [stars, setStars] = useState<Entry["stars"]>(undefined);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
   const [importState, setImportState] = useState<{ url: string; result: ImportListResponse } | null>(null);
 
   function reset() {
@@ -47,6 +48,7 @@ export function AddEntryDialog({ open, onClose, onAdd, boardSlug, ownerKey, onAd
     setManualName("");
     setMemo("");
     setStars(undefined);
+    setError("");
     setImportState(null);
   }
 
@@ -60,8 +62,9 @@ export function AddEntryDialog({ open, onClose, onAdd, boardSlug, ownerKey, onAd
     if (!placeName || submitting) return;
 
     setSubmitting(true);
+    setError("");
     try {
-      await onAdd({
+      const result = await onAdd({
         source: parsed?.source ?? "manual",
         placeName,
         address: parsed?.address,
@@ -72,7 +75,11 @@ export function AddEntryDialog({ open, onClose, onAdd, boardSlug, ownerKey, onAd
         memo: memo.trim() || undefined,
         stars,
       });
-      handleClose();
+      if (result.ok) {
+        handleClose();
+      } else {
+        setError(result.error ?? "장소를 추가하지 못했어요.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -131,6 +138,8 @@ export function AddEntryDialog({ open, onClose, onAdd, boardSlug, ownerKey, onAd
             <label className="mb-1 block text-xs font-medium text-stone-500">별점</label>
             <StarRating value={stars ?? 0} onChange={setStars} />
           </div>
+
+          {error && <p className="text-sm text-red-500">{error}</p>}
 
           <Button onClick={handleSubmit} disabled={submitting || (!parsed && !manualName.trim())}>
             {submitting ? "추가하는 중..." : "보드에 담기"}

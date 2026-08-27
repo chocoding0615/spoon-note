@@ -1,5 +1,5 @@
 import type { ParsedPlace, PlaceSource } from "../types";
-import { resolveFinalUrl } from "./http";
+import { resolveFinalUrl, isHostnameOf } from "./http";
 
 /** 폴더(저장 목록) 파서(naverPlacelist/googlePlacelist/kakaoPlacelist)의 공통 반환 형태.
  *  단일 링크 파서(PlaceParser, URL 하나 → 장소 하나)와는 반환 형태 자체가 달라서
@@ -35,7 +35,9 @@ export async function detectPlacelist(url: string): Promise<PlacelistDetection |
     return null;
   }
 
-  if (parsed.hostname.endsWith("naver.com") && parsed.pathname.includes("/favorite/myPlace/folder/")) {
+  // endsWith/includes만 쓰면 "evil-naver.com", "google.evil.com" 같은 도메인
+  // 경계를 안 지키는 문자열로 우회된다 - isHostnameOf로 정확히 검사한다.
+  if (isHostnameOf(parsed.hostname, "naver.com") && parsed.pathname.includes("/favorite/myPlace/folder/")) {
     return { source: "naver", finalUrl };
   }
   // 구글은 UA에 따라 최종 URL 모양이 갈린다(실측 확인) - 브라우저 UA는
@@ -43,7 +45,7 @@ export async function detectPlacelist(url: string): Promise<PlacelistDetection |
   // 쓰는 봇 UA(`resolveFinalUrl`의 BOT_USER_AGENT)는 한 홉 더 튀어서
   // `/maps/@/data=...!11m1!2s{id}` 형태로 도착한다. 둘 다 잡아야 한다.
   if (
-    parsed.hostname.includes("google.") &&
+    isHostnameOf(parsed.hostname, "google.com") &&
     (parsed.pathname.includes("/maps/placelists/") || /\/maps\/@\/data=.*!11m1!2s/.test(parsed.pathname))
   ) {
     return { source: "google", finalUrl };
