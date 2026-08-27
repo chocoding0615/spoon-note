@@ -42,7 +42,7 @@ interface NaverBookmark {
 }
 
 interface NaverBookmarksResponse {
-  folder?: { bookmarkCount?: number };
+  folder?: { bookmarkCount?: number; name?: string };
   bookmarkList?: NaverBookmark[];
 }
 
@@ -90,6 +90,7 @@ export async function parseNaverPlacelist(url: string): Promise<PlacelistResult 
   const places: ParsedPlace[] = [];
   let bookmarkCount = Infinity;
   let partial = false;
+  let folderName: string | undefined;
 
   for (let page = 0; page < MAX_PAGES && page * PAGE_SIZE < bookmarkCount; page++) {
     const apiUrl =
@@ -114,6 +115,7 @@ export async function parseNaverPlacelist(url: string): Promise<PlacelistResult 
     }
 
     bookmarkCount = data.folder?.bookmarkCount ?? data.bookmarkList.length;
+    if (folderName === undefined) folderName = data.folder?.name || undefined;
     for (const bookmark of data.bookmarkList) {
       const place = toParsedPlace(bookmark, url);
       if (place) places.push(place);
@@ -123,5 +125,5 @@ export async function parseNaverPlacelist(url: string): Promise<PlacelistResult 
   }
 
   if (places.length === 0) return null;
-  return { places, totalCount: Number.isFinite(bookmarkCount) ? bookmarkCount : places.length, partial };
+  return { places, totalCount: Number.isFinite(bookmarkCount) ? bookmarkCount : places.length, partial, folderName };
 }

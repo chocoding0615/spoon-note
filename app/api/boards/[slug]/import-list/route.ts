@@ -105,5 +105,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     importedCount: places.length,
     truncated,
     partial: result.partial,
+    folderName: result.folderName,
   } satisfies ImportListResponse);
 }

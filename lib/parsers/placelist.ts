@@ -11,6 +11,9 @@ export interface PlacelistResult {
   totalCount: number;
   /** 끝까지 다 못 가져오고 중간에 실패해서 지금까지 모은 것만 반환한 경우 true */
   partial: boolean;
+  /** 폴더/저장목록 자체의 이름(예: 네이버 "놀거리") - 소스가 안 주면 undefined.
+   *  "링크 붙여넣기로 보드 만들기"(§프롬프트 10)가 자동 생성 보드 제목으로 쓴다. */
+  folderName?: string;
 }
 
 export type PlacelistSource = Extract<PlaceSource, "naver" | "google" | "kakao">;
