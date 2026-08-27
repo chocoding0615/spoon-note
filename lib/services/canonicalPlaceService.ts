@@ -1,11 +1,20 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { getDb } from "../firebaseAdmin";
-import { COMMUNITY } from "../constants";
+import { COMMUNITY, DEFAULT_NICKNAME } from "../constants";
+import { extractRegion } from "../utils/region";
 import { decideMatch, extractPlaceId, type MatchCandidate } from "./matching";
-import type { CanonicalPlace, CanonicalPlaceBoardLink, PlaceSource } from "../types";
+import type {
+  Board,
+  CanonicalPlace,
+  CanonicalPlaceBoardLink,
+  CanonicalPlaceRanking,
+  PlaceBoardSummary,
+  PlaceSource,
+} from "../types";
 
 const CANONICAL_PLACES_COLLECTION = "canonicalPlaces";
 const BOARD_LINKS_SUBCOLLECTION = "boards";
+const BOARDS_COLLECTION = "boards";
 
 /** 근사 매칭 후보를 찾기 위해 좌표가 대략 근처인 canonical place를 가져온다.
  *  Firestore에서 위도+경도를 동시에 범위 검색하려면 복합 색인이 필요해서, 위도만
@@ -41,6 +50,9 @@ export interface RecordPlaceSaveInput {
   sourceUrl?: string;
   lat?: number;
   lng?: number;
+  /** 최초 등록 시 region 계산에만 쓴다(§CanonicalPlace.region) - 이미 있는
+   *  canonical place에 매칭되면 무시됨(장소 지역은 최초 등록 시 고정). */
+  address?: string;
 }
 
 /** 장소가 보드에 추가됐을 때 호출한다. 매칭되는 canonical place를 찾아
@@ -83,6 +95,7 @@ export async function recordPlaceSave(input: RecordPlaceSaveInput): Promise<stri
         placeName: input.placeName,
         lat: input.lat,
         lng: input.lng,
+        region: extractRegion(input.address),
         saveCount: 1,
         sources: placeId ? [{ source: input.source, placeId, sourceUrl: input.sourceUrl ?? "" }] : [],
         createdAt: now,
@@ -169,4 +182,59 @@ export async function getSaveCounts(canonicalIds: string[]): Promise<Record<stri
     }
   });
   return result;
+}
+
+/** 지역 랭킹 페이지(프롬프트 7)용 - 특정 지역의 canonical place를 찜 횟수
+ *  내림차순으로 돌려준다. region 조건만 where로 걸고(saveCount 범위 조건까지
+ *  같이 걸면 복합 색인이 필요해짐 - 기존 원칙대로 회피) 0인 것 제외/정렬은
+ *  메모리에서 처리한다. saveCount는 이미 "community" 보드만 반영된 값이라
+ *  (entryService/boardService가 기록 시점에 게이팅) 별도 필터 불필요. */
+export async function listRankedPlaces(region: string): Promise<CanonicalPlaceRanking[]> {
+  const snap = await getDb().collection(CANONICAL_PLACES_COLLECTION).where("region", "==", region).get();
+
+  return snap.docs
+    .map((doc) => {
+      const data = doc.data() as CanonicalPlace;
+      return { id: doc.id, placeName: data.placeName, region: data.region ?? null, saveCount: data.saveCount };
+    })
+    .filter((place) => place.saveCount > 0)
+    .sort((a, b) => b.saveCount - a.saveCount);
+}
+
+/** 지역 랭킹 페이지의 지역 선택 드롭다운에 쓸 지역 목록 - 실제로 찜 횟수가
+ *  1 이상인 지역만(0곳인 지역을 골라봐야 빈 리스트만 보임). select()로 필요한
+ *  필드만 읽어서 컬렉션 전체 문서를 다 읽는 비용을 줄인다. */
+export async function listRegionsWithRankings(): Promise<string[]> {
+  const snap = await getDb().collection(CANONICAL_PLACES_COLLECTION).select("region", "saveCount").get();
+
+  const regions = new Set<string>();
+  snap.docs.forEach((doc) => {
+    const data = doc.data() as Pick<CanonicalPlace, "region" | "saveCount">;
+    if (data.region && data.saveCount > 0) regions.add(data.region);
+  });
+  return Array.from(regions).sort();
+}
+
+/** 랭킹 항목을 펼쳤을 때 "이 장소를 찜한 보드 목록"을 보여주기 위한 조회.
+ *  canonicalPlaces/{id}/boards 서브컬렉션 문서 ID가 boardId(=slug)로 고정돼
+ *  있어서(§recordPlaceSave) 바로 배치 조회할 수 있다. */
+export async function listBoardsForCanonicalPlace(canonicalId: string): Promise<PlaceBoardSummary[]> {
+  const db = getDb();
+  const linksSnap = await db
+    .collection(CANONICAL_PLACES_COLLECTION)
+    .doc(canonicalId)
+    .collection(BOARD_LINKS_SUBCOLLECTION)
+    .get();
+  if (linksSnap.empty) return [];
+
+  const boardSlugs = linksSnap.docs.map((doc) => doc.id);
+  const refs = boardSlugs.map((slug) => db.collection(BOARDS_COLLECTION).doc(slug));
+  const boardSnaps = await db.getAll(...refs);
+
+  return boardSnaps
+    .filter((snap) => snap.exists)
+    .map((snap) => {
+      const board = snap.data() as Board;
+      return { slug: board.slug, title: board.title, authorName: board.nickname || DEFAULT_NICKNAME };
+    });
 }

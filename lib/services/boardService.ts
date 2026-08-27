@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { FieldValue } from "firebase-admin/firestore";
 import { getDb } from "../firebaseAdmin";
 import { generateSlug } from "../utils/slug";
 import { LIMITS } from "../constants";
 import { ValidationError, OwnershipError } from "./errors";
-import { removePlaceSave } from "./canonicalPlaceService";
+import { recordPlaceSave, removePlaceSave } from "./canonicalPlaceService";
 import type { Board, Entry, Visibility } from "../types";
 
 const BOARDS_COLLECTION = "boards";
@@ -81,6 +82,63 @@ export interface UpdateBoardInput {
   nickname?: string;
 }
 
+/** visibility가 "community"로/에서 바뀔 때, 이미 담겨있던 엔트리들의 canonical
+ *  place 집계도 같이 맞춰준다(프롬프트 7 - 커뮤니티공개 보드만 집계에 반영).
+ *  entryService.addEntry는 "추가 시점" 보드 visibility만 보고 게이팅하므로,
+ *  기존 엔트리들은 여기서 별도로 반영해줘야 뒤늦게 어긋나지 않는다.
+ *  보드 visibility 변경 자체는 이미 끝난 뒤 호출되는 부가 동작이라 fail-open. */
+async function syncCanonicalCountsOnVisibilityChange(
+  slug: string,
+  fromVisibility: Visibility,
+  toVisibility: Visibility
+): Promise<void> {
+  const wasCommunity = fromVisibility === "community";
+  const isCommunity = toVisibility === "community";
+  if (wasCommunity === isCommunity) return; // 커뮤니티 <-> 커뮤니티 밖 전환이 아니면 카운트 변화 없음
+
+  const db = getDb();
+  const entriesSnap = await db.collection(ENTRIES_COLLECTION).where("boardId", "==", slug).get();
+
+  if (isCommunity) {
+    // 비공개/링크공유 -> 커뮤니티: 아직 집계 안 된(canonicalId 없는) 기존 엔트리들을 새로 반영
+    await Promise.all(
+      entriesSnap.docs.map(async (doc) => {
+        const entry = doc.data() as Entry;
+        if (entry.canonicalId) return;
+        try {
+          const canonicalId = await recordPlaceSave({
+            entryId: doc.id,
+            boardId: slug,
+            source: entry.source,
+            placeName: entry.placeName,
+            sourceUrl: entry.sourceUrl,
+            lat: entry.lat,
+            lng: entry.lng,
+            address: entry.address,
+          });
+          await doc.ref.update({ canonicalId });
+        } catch (error) {
+          console.error("[boards] 커뮤니티 전환 시 canonical place 집계 실패:", error);
+        }
+      })
+    );
+  } else {
+    // 커뮤니티 -> 비공개/링크공유: 더 이상 집계 대상이 아니니 canonicalId를 떼고 카운트를 되돌림
+    await Promise.all(
+      entriesSnap.docs.map(async (doc) => {
+        const entry = doc.data() as Entry;
+        if (!entry.canonicalId) return;
+        try {
+          await removePlaceSave(doc.id, slug, entry.canonicalId);
+          await doc.ref.update({ canonicalId: FieldValue.delete() });
+        } catch (error) {
+          console.error("[boards] 커뮤니티 이탈 시 canonical place 감소 실패:", error);
+        }
+      })
+    );
+  }
+}
+
 export async function updateBoard(
   slug: string,
   ownerKey: string,
@@ -107,6 +165,11 @@ export async function updateBoard(
   }
 
   await ref.update(update);
+
+  if (patch.visibility !== undefined && patch.visibility !== board.visibility) {
+    await syncCanonicalCountsOnVisibilityChange(slug, board.visibility, patch.visibility);
+  }
+
   return { ...board, ...update };
 }
 

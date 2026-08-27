@@ -41,7 +41,7 @@ export interface AddEntryInput {
 const VALID_SOURCES = Object.keys(SOURCE_META) as Entry["source"][];
 
 export async function addEntry(slug: string, input: AddEntryInput): Promise<Entry> {
-  await getBoardOrThrow(slug);
+  const board = await getBoardOrThrow(slug);
 
   // 요청 shape 매핑(타입 캐스팅)은 라우트가 하지만, 값 자체가 의미상 맞는지는
   // 서비스 계층에서 검증한다(PLAN.md 원칙 7).
@@ -93,22 +93,27 @@ export async function addEntry(slug: string, input: AddEntryInput): Promise<Entr
 
   const ref = await db.collection(ENTRIES_COLLECTION).add(entry);
 
-  // 커뮤니티 랭킹(같은 장소를 여러 보드가 찜한 것 집계)은 부가 기능이라, 여기서
-  // 실패해도 "장소를 보드에 담기"라는 핵심 동작 자체는 성공해야 한다 - fail-open.
+  // 커뮤니티 랭킹(같은 장소를 여러 보드가 찜한 것 집계)은 "커뮤니티공개" 보드에서
+  // 나온 장소만 반영한다(프롬프트 7) - 비공개/링크공유 보드 엔트리는 canonicalId
+  // 자체를 안 붙인다. 부가 기능이라 여기서 실패해도 "장소를 보드에 담기"라는
+  // 핵심 동작 자체는 성공해야 한다 - fail-open.
   let canonicalId: string | undefined;
-  try {
-    canonicalId = await recordPlaceSave({
-      entryId: ref.id,
-      boardId: slug,
-      source: entry.source,
-      placeName: entry.placeName,
-      sourceUrl: entry.sourceUrl,
-      lat: entry.lat,
-      lng: entry.lng,
-    });
-    await ref.update({ canonicalId });
-  } catch (error) {
-    console.error("[entries] canonical place 집계 실패(엔트리 추가 자체는 성공):", error);
+  if (board.visibility === "community") {
+    try {
+      canonicalId = await recordPlaceSave({
+        entryId: ref.id,
+        boardId: slug,
+        source: entry.source,
+        placeName: entry.placeName,
+        sourceUrl: entry.sourceUrl,
+        lat: entry.lat,
+        lng: entry.lng,
+        address: entry.address,
+      });
+      await ref.update({ canonicalId });
+    } catch (error) {
+      console.error("[entries] canonical place 집계 실패(엔트리 추가 자체는 성공):", error);
+    }
   }
 
   return { id: ref.id, ...entry, canonicalId };

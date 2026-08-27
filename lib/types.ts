@@ -95,14 +95,56 @@ export interface CanonicalPlace {
   placeName: string;
   lat?: number;
   lng?: number;
-  /** 이 장소를 담은 서로 다른 보드 수 - 엔트리 수가 아니라 보드 수(한 보드가
-   *  같은 장소를 두 번 담아도 1로만 집계). 정확한 집계는
+  /** 최초 등록 시점 주소에서 뽑은 시/구 단위 지역(§lib/utils/region.ts). 장소가
+   *  이동할 일은 없다고 보고 생성 시 한 번만 정하고 이후엔 갱신하지 않는다.
+   *  주소가 없거나 지역을 못 뽑으면 null. */
+  region?: string | null;
+  /** 이 장소를 담은 서로 다른 "커뮤니티공개" 보드 수 - 엔트리 수가 아니라 보드 수(한 보드가
+   *  같은 장소를 두 번 담아도 1로만 집계). 비공개/링크공유 보드는 집계에서 제외된다
+   *  (entryService.addEntry/boardService.updateBoard가 visibility가 "community"일 때만
+   *  이 카운트에 반영되도록 호출을 게이팅한다). 정확한 집계는
    *  canonicalPlaces/{id}/boards 서브컬렉션 문서 존재 여부로 트랜잭션 안에서 판정. */
   saveCount: number;
   /** 원본 링크/ID들 - 나중에 잘못 묶인 걸 수동으로 분리할 수 있게 전부 유지 */
   sources: { source: PlaceSource; placeId: string; sourceUrl: string }[];
   createdAt: number;
   updatedAt: number;
+}
+
+/** 지역 랭킹 페이지(프롬프트 7)에 보여줄 canonical place 한 항목. */
+export interface CanonicalPlaceRanking {
+  id: string;
+  placeName: string;
+  region: string | null;
+  saveCount: number;
+}
+
+/** 랭킹 항목을 펼쳤을 때 보여줄 "이 장소를 찜한 보드" 요약. */
+export interface PlaceBoardSummary {
+  slug: string;
+  title: string;
+  authorName: string;
+}
+
+/** 커뮤니티 피드(프롬프트 6) 카드 하나. */
+export interface FeedBoardCard {
+  slug: string;
+  title: string;
+  authorName: string;
+  entryCount: number;
+  region: string | null;
+  coverPhoto: string | null;
+  /** canonical place 찜 횟수가 임계값(COMMUNITY.goldThreshold) 이상인 장소 개수 */
+  popularCount: number;
+  createdAt: number;
+}
+
+/** 신고된 보드 기록(관리자만 Firestore 콘솔에서 직접 확인 - 별도 admin UI 없음). */
+export interface BoardReport {
+  id?: string;
+  boardSlug: string;
+  boardTitle: string;
+  createdAt: number;
 }
 
 /** canonicalPlaces/{canonicalId}/boards/{boardId} 서브컬렉션 문서.

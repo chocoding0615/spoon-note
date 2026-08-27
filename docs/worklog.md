@@ -126,6 +126,73 @@ saveCount를 정확히 0으로 되돌리는 것까지 확인하고, 남은 canon
 테스트 문서는 일회성 스크립트로 직접 삭제해서 정리. `npm run build`,
 `npm run lint`, `npx vitest run`(27개 전부 통과) 확인 완료.
 
+## 프롬프트 6·7 — 커뮤니티 피드 + 지역 랭킹 페이지
+
+**전제 버그 발견·수정(프롬프트 7 요구사항 4에서 명시적으로 확인 요청한 부분)**:
+지금까지 `entryService.addEntry`/`boardService.deleteBoard`가 보드의 visibility와
+무관하게 canonical place saveCount를 무조건 집계하고 있었다 - 즉 비공개/링크공유
+보드에 담은 장소도 커뮤니티 랭킹에 그대로 반영되는 버그였음. 아래처럼 고쳤다:
+
+- `entryService.addEntry`: `board.visibility === "community"`일 때만
+  `recordPlaceSave` 호출(canonicalId도 그때만 붙음) - 이제 비공개/링크공유
+  보드 엔트리는 canonicalId 필드 자체가 없음
+- `boardService.updateBoard`: visibility가 "community"로/에서 바뀌면
+  `syncCanonicalCountsOnVisibilityChange`가 기존 엔트리들을 소급 반영한다 -
+  비공개→커뮤니티 전환 시 아직 canonicalId 없는 엔트리를 새로 집계에 넣고,
+  커뮤니티→비공개 전환 시 canonicalId를 떼면서 카운트를 되돌림. 둘 다
+  fail-open(부가 기능이라 실패해도 visibility 변경 자체는 이미 끝난 뒤)
+- `deleteBoard`는 원래도 `entry.canonicalId`가 없으면 스킵하는 구조라 위 변경만으로
+  자연히 일관성이 맞음(추가 수정 불필요)
+
+**canonical place에 지역(region) 필드 추가**: 지역 랭킹을 지역별로 걸러 보여주려면
+canonical place가 자기 지역을 알아야 해서, `CanonicalPlace.region`을 새로 추가.
+최초 생성 시점(`recordPlaceSave`)에 `lib/utils/region.ts`의 `extractRegion()`으로
+주소에서 시/구 단위를 뽑아 한 번만 저장(장소는 이동 안 하니 이후 갱신 안 함).
+`extractRegion`은 행정구역 DB 없이 "구/군으로 끝나는 토큰 우선, 없으면 시로
+끝나는 토큰, 그마저 없으면 첫 토큰" 휴리스틱 - 정확한 행정동 경계가 아니라
+피드/랭킹 필터용 근사치. 순수 함수라 `region.test.ts`로 단위 테스트.
+
+**프롬프트 6 - 커뮤니티 피드** (`/community`):
+- `feedService.listCommunityFeed(region?)` - visibility:"community" 보드를 모아
+  각 보드의 엔트리를 조회(N+1, MVP 규모 전제)해서 카드에 필요한 대표사진(사진
+  있는 첫 엔트리)/지역(엔트리 주소 최빈값, `dominantRegion`)/작성자
+  닉네임/"이 중 N곳은 다른 사람도 찜함"(canonical saveCount가 임계값 이상인
+  엔트리 수)을 계산. saveCounts는 전체 보드의 canonicalId를 모아 한 번만
+  배치 조회(N+1 아님). 정렬은 최신순 고정, 지역 필터는 URL 쿼리(`?region=`)
+- `FeedCard.tsx` - 카드 전체가 보드 상세로 가는 Link, 신고 버튼은 Link 안에
+  button을 중첩하는 비표준 마크업 대신 절대위치 형제 요소로 분리
+- 신고: `POST /api/boards/[slug]/report` -> `reportService.reportBoard()` ->
+  `boardReports` 컬렉션에 기록만(중복 방지·사유 입력 없음, admin UI 없음 -
+  관리자가 Firestore 콘솔에서 직접 확인하는 걸 전제). 레이트리밋만 추가
+  (시간당 20회, 도배 방지 최소 수준)
+
+**프롬프트 7 - 지역 랭킹** (`/rankings`):
+- `canonicalPlaceService.listRankedPlaces(region)` - region으로만 where 걸고
+  (saveCount 범위 조건까지 걸면 복합 색인 필요해져서 회피) saveCount>0 필터/
+  내림차순 정렬은 메모리에서. saveCount 자체가 이미 커뮤니티 보드만 반영된
+  값이라 별도 visibility 체크 불필요
+- `listRegionsWithRankings()` - 드롭다운용 지역 목록, `select()`로 필요한
+  필드만 읽어서 비용 절감
+- `listBoardsForCanonicalPlace(id)` - 항목 펼쳤을 때 "이 장소를 찜한 보드
+  목록"용, canonicalPlaces/{id}/boards 서브컬렉션 문서 ID가 boardId 그대로라
+  바로 배치 조회 가능. `GET /api/canonical-places/[id]/boards`로 지연 조회
+  (랭킹 목록 로드 시 전부 안 불러옴)
+- `RankingList.tsx` - 1~3위 메달 이모지, 4위부터 숫자. 펼친 보드 목록은
+  컴포넌트 내부에 캐시해서 접었다 펴도 재요청 안 함
+
+**검증**: 로컬 dev 서버에서 커뮤니티 보드 2개(강남구, 같은 카카오ID로 매칭되는
+장소 포함) + 비공개 보드 1개(같은 지역, 다른 장소)를 만들어 `/community`
+HTML을 직접 확인 - 커뮤니티 보드만 노출, 지역/장소개수/작성자/"N곳은 다른
+사람도 찜함" 문구 전부 정확히 렌더링, 비공개 보드는 피드에 전혀 안 나옴을
+확인. `/rankings?region=강남구`에서 랭킹 정렬(🔥2 > 🔥1)과 비공개 보드
+장소가 랭킹에서 완전히 빠지는 것 확인. `/api/canonical-places/[id]/boards`,
+`POST /api/boards/[slug]/report` 둘 다 직접 호출해서 정상 동작 확인.
+visibility 전환 시나리오(비공개로 엔트리 추가 → 커뮤니티로 전환 시
+canonicalId가 소급 부여되고 saveCount 증가 → 다시 링크공유로 전환 시
+canonicalId 제거되고 saveCount 원복)까지 전부 재현 확인. 테스트로 만든
+보드/canonical place/신고 기록 전부 정리 완료. `npm run build`,
+`npm run lint`, `npx vitest run`(36개 전부 통과) 확인 완료.
+
 ## 다른 PC(사무실 등)에서 이어서 작업할 때 체크리스트
 - `git pull`(또는 처음이면 `gh repo clone chocoding0615/spoon-note`)로 코드는 받아짐
 - **`.env.local`은 git에 안 올라감**(`.gitignore`) - Firebase 서비스 계정 키

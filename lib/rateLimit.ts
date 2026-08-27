@@ -23,6 +23,9 @@ export const RATE_LIMITS = {
   /** 폴더 링크 가져오기: 시간당 10회 - 호출 하나가 내부적으로 여러 번 fetch하는
    *  무거운 작업이라(네이버는 페이지네이션까지 돎) parse보다 훨씬 낮게 잡는다 */
   importList: { endpoint: "importList", limit: 10, windowMs: 60 * 60 * 1000 },
+  /** 보드 신고: 시간당 20회 - 최소 기능이라 중복/스팸 신고 자체를 막진 않지만,
+   *  자동화된 도배로 신고 컬렉션이 무한정 쌓이는 것만 방지하는 수준 */
+  report: { endpoint: "report", limit: 20, windowMs: 60 * 60 * 1000 },
 } satisfies Record<string, RateLimitRule>;
 
 // 프록시 체인의 맨 앞이 실제 클라이언트 IP다.

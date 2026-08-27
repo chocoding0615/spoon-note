@@ -33,6 +33,15 @@ export default function Home() {
           </Link>
         </div>
 
+        <div className="mt-4 flex items-center gap-4">
+          <Link href="/community" className="text-sm font-medium text-stone-500 hover:text-stone-700">
+            커뮤니티 피드
+          </Link>
+          <Link href="/rankings" className="text-sm font-medium text-stone-500 hover:text-stone-700">
+            지역 랭킹
+          </Link>
+        </div>
+
         <div className="mt-10 flex items-center gap-3 text-sm text-stone-400">
           <span>지원 링크</span>
           <div className="flex gap-2">
