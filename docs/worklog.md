@@ -523,6 +523,27 @@ end-to-end로 정상 동작함을 확인. 중간에 프롬프트 7 작업 때 "�
   브라우저 자동화 도구가 없어서 지도 렌더링 자체는 코드 리뷰 수준 검증 - 실 데이터
   쌓이면 브라우저로 재확인 권장
 
+## 버그 수정 — 네이버 폴더 링크 가져오기가 장소명을 영문/로마자로 가져옴 (2026-08-27)
+
+사용자가 실제로 쓰던 네이버지도 저장 목록 링크(`naver.me/...`)를 테스트해보자고
+해서 로컬 dev 서버로 직접 재현. 폴더 자체는 정상 인식되고 27개 전부 가져와지는데,
+`그래픽 바이 대신`처럼 한국어 장소명/카테고리가 `GRAPHIC X DAISHIN`처럼 영문으로,
+`강화루지`는 `ganghwaluge`라는 어설픈 로마자로 오는 문제 발견.
+
+- **원인**: `naverPlacelist.ts`가 부르는 비공식 API
+  (`pages.map.naver.com/save-pages/api/maps-bookmark/v3/shares/{id}/bookmarks`)가
+  요청의 `accept-language` 헤더로 응답 언어를 정하는데, Node의 전역 `fetch`(undici)는
+  이 헤더를 기본으로 안 보낸다. curl로 직접 테스트했을 때는 한국어가 나와서 처음엔
+  "된다"고 착각할 뻔했는데, 같은 URL을 Node `fetch`로 호출하니 재현됨 - 헤더를
+  하나씩 대조해서 `accept-language` 차이를 찾음. 개별 장소 링크(`m.place.naver.com`
+  OG 메타 스크래핑, `naver.ts`)는 이 헤더 없이도 항상 한국어라 폴더 API에만 있는
+  문제였음
+- **수정**: `naverPlacelist.ts`의 bookmarks API 호출에 `"accept-language":
+  "ko-KR,ko;q=0.9"` 헤더 추가
+- **검증**: 사용자가 준 실제 링크로 재현 → 수정 후 같은 링크로 재확인, 27개 전부
+  한국어 이름/카테고리로 정상 반환 확인(테스트 보드는 생성 후 삭제). `tsc`/`eslint`/
+  `vitest`(39개)/`build` 전부 통과
+
 ## 다른 PC(사무실 등)에서 이어서 작업할 때 체크리스트
 - `git pull`(또는 처음이면 `gh repo clone chocoding0615/spoon-note`)로 코드는 받아짐
 - **`.env.local`은 git에 안 올라감**(`.gitignore`) - Firebase 서비스 계정 키

@@ -20,6 +20,12 @@ import type { PlacelistResult } from "./placelist";
 // 마찬가지로 형식이 예고 없이 바뀔 수 있다는 리스크는 동일하게 있다.
 // 반환 형태가 "URL 하나 → 장소 여러 개"라 기존 PlaceParser 레지스트리와도
 // 안 맞는 것 역시 googlePlacelist.ts와 같은 이유로 동일함.
+//
+// 실측 확인(2026-08-27, 실제 사용자 링크로 재현): `accept-language` 헤더를 안
+// 보내면 이 API가 name/mcidName을 영문(또는 어설픈 로마자 표기, 예: "강화루지"가
+// "ganghwaluge"로)으로 내려준다 - curl은 되고 Node fetch(undici)는 안 되길래
+// 헤더 차이를 하나씩 대조해서 찾음. 개별 장소 링크(`m.place.naver.com`, naver.ts)
+// 쪽 OG 메타는 이 헤더가 없어도 항상 한국어라 이 API에만 있는 문제.
 
 const PAGE_SIZE = 20; // placeInfo=true일 때 서버가 허용하는 최대치(실측 확인)
 const MAX_PAGES = 10; // 장당 20개 * 10 = 200개까지 방어적으로 상한(무한루프 방지)
@@ -91,7 +97,10 @@ export async function parseNaverPlacelist(url: string): Promise<PlacelistResult 
       `?placeInfo=true&start=${page * PAGE_SIZE}&limit=${PAGE_SIZE}&sort=lastUseTime&mcids=ALL&createIdNo=true`;
 
     const res = await fetchWithTimeout(apiUrl, {
-      headers: { "user-agent": "Mozilla/5.0 (compatible; SpoonNoteBot/1.0)" },
+      headers: {
+        "user-agent": "Mozilla/5.0 (compatible; SpoonNoteBot/1.0)",
+        "accept-language": "ko-KR,ko;q=0.9",
+      },
     });
     if (!res || !res.ok) {
       partial = page > 0; // 첫 페이지부터 실패면 완전 실패, 이후 페이지 실패면 부분 성공
