@@ -16,8 +16,8 @@ export interface RateLimitRule {
 export const RATE_LIMITS = {
   /** 링크 파싱: 시간당 30회 - 정상 사용엔 충분하고 반복 크롤링만 막는 수준 */
   parse: { endpoint: "parse", limit: 30, windowMs: 60 * 60 * 1000 },
-  /** 보드 생성: 시간당 10회 - 무료 한도(3개)보다 넉넉하지만 스팸은 막는 수준 */
-  createBoard: { endpoint: "createBoard", limit: 10, windowMs: 60 * 60 * 1000 },
+  /** 보드 생성: 시간당 20회 - 무료 한도(10개)보다 넉넉하지만 스팸은 막는 수준 */
+  createBoard: { endpoint: "createBoard", limit: 20, windowMs: 60 * 60 * 1000 },
   /** 엔트리 추가: 시간당 60회 - 친구가 같이 채우는 컨셉이라 생성보다 넉넉하게 */
   addEntry: { endpoint: "addEntry", limit: 60, windowMs: 60 * 60 * 1000 },
   /** 폴더 링크 가져오기: 시간당 10회 - 호출 하나가 내부적으로 여러 번 fetch하는

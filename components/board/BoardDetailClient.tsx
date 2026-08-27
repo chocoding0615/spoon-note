@@ -39,7 +39,7 @@ interface BoardDetailClientProps {
 }
 
 export function BoardDetailClient({
-  board,
+  board: initialBoard,
   initialEntries,
   saveCounts,
   isOwner,
@@ -49,6 +49,7 @@ export function BoardDetailClient({
   const router = useRouter();
   const pathname = usePathname();
   const [view, setView] = useState<ViewMode>(initialView);
+  const [board, setBoard] = useState(initialBoard);
   const [entries, setEntries] = useState(initialEntries);
   // 마지막으로 서버에 저장된 순서 - dirty 판정 기준(순서 저장 버튼 노출 여부)
   const [savedOrderIds, setSavedOrderIds] = useState(initialEntries.map((entry) => entry.id));
@@ -120,7 +121,13 @@ export function BoardDetailClient({
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
-      <BoardHeader board={board} entryCount={entries.length} />
+      <BoardHeader
+        board={board}
+        entryCount={entries.length}
+        isOwner={isOwner}
+        ownerKey={ownerKey}
+        onBoardUpdated={setBoard}
+      />
 
       <div className="flex items-center gap-2">
         <Button variant={view === "list" ? "primary" : "ghost"} onClick={() => handleViewChange("list")}>

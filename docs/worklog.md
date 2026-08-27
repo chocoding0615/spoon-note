@@ -611,6 +611,25 @@ fail-open으로 통과되는 바람에 이 세션의 로컬 재현 테스트에�
   유실 없이 이어갈 수 있게 함
 - `tsc`/`eslint`/`vitest`(39개)/`build` 전부 통과, 같은 링크로 로컬 재확인(27개 정상)
 
+## 기능 추가 — 무료 보드 한도 10개, 보드 삭제/수정(제목·설명·공개설정) (2026-08-27)
+
+사용자 요청 3가지를 한 번에 처리:
+
+- **`LIMITS.freeBoards` 3 -> 10**(`lib/constants.ts`). 같이 걸려있던
+  `RATE_LIMITS.createBoard`(시간당 보드 생성 횟수)도 10 -> 20으로 올림 - 그대로
+  두면 새 한도(10개)를 시간당 한도(10회)로 정확히 막아버려서 "넉넉하게"라는
+  기존 취지가 깨짐. 관련 주석(`boardService.ts`의 Firestore 'in' 쿼리 설명)도
+  숫자 갱신
+- **보드 삭제/수정 UI**: 새 컴포넌트 `components/board/BoardSettingsModal.tsx` -
+  보드 상세 화면 헤더에 소유자에게만 보이는 "설정" 버튼(`BoardHeader.tsx`)을 누르면
+  열리는 모달. 제목/설명/공개설정(`/boards/new`에서 쓰던 `VisibilitySelector` 그대로
+  재사용)을 고쳐서 저장(기존 `PATCH /api/boards/[slug]` 재사용, 새 API 없음)하거나,
+  확인 후 삭제(기존 `DELETE /api/boards/[slug]` 재사용) -> `/my`로 이동. 삭제 시
+  로컬 ownerKey도 같이 지움(`removeOwnerKey`)
+- `BoardDetailClient`가 `board`를 prop 그대로 쓰던 것에서 로컬 state로 승격
+  (`initialBoard` -> `useState`)해서, 설정 저장 후 새로고침 없이 헤더에 바로 반영됨
+- API 레벨로 수정/삭제/삭제 후 404 확인, `tsc`/`eslint`/`vitest`(39개)/`build` 전부 통과
+
 ## 다른 PC(사무실 등)에서 이어서 작업할 때 체크리스트
 - `git pull`(또는 처음이면 `gh repo clone chocoding0615/spoon-note`)로 코드는 받아짐
 - **`.env.local`은 git에 안 올라감**(`.gitignore`) - Firebase 서비스 계정 키

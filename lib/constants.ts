@@ -29,7 +29,7 @@ export const LAST_REGION_STORAGE_KEY = "spoonnote:lastRegion";
 export const THEMES = ["기본", "여행", "데이트", "혼밥", "회식", "카페투어"] as const;
 
 export const LIMITS = {
-  freeBoards: 3,
+  freeBoards: 10,
   freeEntriesPerBoard: 50,
   memoMaxLength: 200,
   titleMaxLength: 40,

@@ -73,7 +73,7 @@ export async function getViewableBoard(slug: string, ownerKey?: string): Promise
 
 export async function listBoardsByOwnerKeys(ownerKeys: string[]): Promise<Board[]> {
   if (ownerKeys.length === 0) return [];
-  // Firestore 'in' 쿼리는 최대 30개 - freeBoards 제한(3개) 안에서는 항상 충분하다.
+  // Firestore 'in' 쿼리는 최대 30개 - freeBoards 제한(10개) 안에서는 항상 충분하다.
   const snap = await getDb()
     .collection(BOARDS_COLLECTION)
     .where("ownerKey", "in", ownerKeys.slice(0, 30))

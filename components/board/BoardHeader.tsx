@@ -2,16 +2,21 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { BoardSettingsModal } from "./BoardSettingsModal";
 import { VISIBILITY_OPTIONS } from "@/lib/constants";
 import type { Board } from "@/lib/types";
 
 interface BoardHeaderProps {
   board: Board;
   entryCount: number;
+  isOwner: boolean;
+  ownerKey?: string;
+  onBoardUpdated: (board: Board) => void;
 }
 
-export function BoardHeader({ board, entryCount }: BoardHeaderProps) {
+export function BoardHeader({ board, entryCount, isOwner, ownerKey, onBoardUpdated }: BoardHeaderProps) {
   const [copied, setCopied] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const visibilityLabel = VISIBILITY_OPTIONS.find((option) => option.value === board.visibility)?.label;
 
   async function handleShare() {
@@ -43,14 +48,31 @@ export function BoardHeader({ board, entryCount }: BoardHeaderProps) {
           <h1 className="text-2xl font-bold text-stone-900">{board.title}</h1>
           {board.description && <p className="mt-1 text-sm text-stone-500">{board.description}</p>}
         </div>
-        <Button variant="secondary" onClick={handleShare}>
-          {copied ? "복사됨!" : "공유하기"}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {isOwner && ownerKey && (
+            <Button variant="ghost" onClick={() => setSettingsOpen(true)}>
+              설정
+            </Button>
+          )}
+          <Button variant="secondary" onClick={handleShare}>
+            {copied ? "복사됨!" : "공유하기"}
+          </Button>
+        </div>
       </div>
       <div className="flex items-center gap-2 text-xs text-stone-400">
         <span className="rounded-full bg-stone-100 px-2 py-0.5">{visibilityLabel}</span>
         <span>장소 {entryCount}개</span>
       </div>
+
+      {isOwner && ownerKey && (
+        <BoardSettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          board={board}
+          ownerKey={ownerKey}
+          onUpdated={onBoardUpdated}
+        />
+      )}
     </div>
   );
 }
