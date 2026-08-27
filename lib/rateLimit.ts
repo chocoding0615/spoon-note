@@ -26,6 +26,11 @@ export const RATE_LIMITS = {
   /** 보드 신고: 시간당 20회 - 최소 기능이라 중복/스팸 신고 자체를 막진 않지만,
    *  자동화된 도배로 신고 컬렉션이 무한정 쌓이는 것만 방지하는 수준 */
   report: { endpoint: "report", limit: 20, windowMs: 60 * 60 * 1000 },
+  /** 이메일 회원가입: 시간당 5회 - 계정 생성 자체는 시간당 여러 번 할 이유가
+   *  거의 없다 */
+  emailSignup: { endpoint: "emailSignup", limit: 5, windowMs: 60 * 60 * 1000 },
+  /** 이메일 로그인: 시간당 20회 - 비밀번호 무차별 대입 시도를 늦추는 게 목적 */
+  emailLogin: { endpoint: "emailLogin", limit: 20, windowMs: 60 * 60 * 1000 },
 } satisfies Record<string, RateLimitRule>;
 
 // 프록시 체인의 맨 앞이 실제 클라이언트 IP다.

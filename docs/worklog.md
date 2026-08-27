@@ -58,10 +58,51 @@ Firestore에 가짜 세션(성인/미성년 각 1명)을 직접 심어서 세션
 링크공유)이 여전히 되는 회귀 확인도 함께 함. 테스트 데이터/가짜 세션 전부
 정리. `npm run build`, `npm run lint`, `npx vitest run`(39개) 통과.
 
-## 다음에 이어서 할 만한 것 - 프롬프트 9 잔여
-- 이메일 회원가입(Firebase Authentication 연동) - 다음 커밋
-- 실제 카카오/네이버 콘솔 설정(카카오 로그인 상품 활성화 + 생년 동의항목,
-  네이버 로그인 앱 신규 등록) 후 브라우저로 실제 로그인 재검증 필요
+## 프롬프트 9 — 계정 시스템 (5단계: 이메일 회원가입)
+
+**설계안에서 일부러 벗어난 부분**: 원래 설계안(§artifact 02)은 "클라이언트
+Firebase SDK로 로그인 → ID 토큰을 서버에 보내 세션 발급"이었는데, 실제로 만들면서
+보니 스푼노트는 지금까지 카카오/네이버 로그인 포함 전부 서버 라우트+리다이렉트만
+쓰고 클라이언트 인증 SDK가 어디에도 없다는 걸 다시 확인했음 - 여기서만 `firebase`
+클라이언트 패키지를 새로 들이면 번들 무게도 늘고 아키텍처도 깨져서, 클라이언트
+SDK 없이 서버만으로 끝내는 쪽으로 바꿈:
+- **회원가입**: `firebase-admin`의 `createUser()` - 이미 있는 Admin SDK만으로
+  충분해서 새 키가 전혀 필요 없음
+- **로그인**: Admin SDK엔 "비밀번호 검증" API가 없어서(관리용 SDK라 당연함),
+  Firebase Identity Toolkit REST(`accounts:signInWithPassword`)를 서버에서
+  직접 호출. `FIREBASE_WEB_API_KEY`(비밀값 아님 - 콘솔 프로젝트 설정에 그냥
+  노출돼 있는 값, 그래도 서버 전용 env로만 둠) 하나만 새로 필요
+- uid는 결정 필요 항목이었던 `email_{firebaseUid}` 형태로(§`makeUid("email", ...)`,
+  기존 kakao_/naver_ 패턴과 통일)
+- 출생연도(§프롬프트 9 요구사항 4): OAuth와 달리 이메일 가입은 제공자가 주는
+  값이 아예 없어서, 가입 폼(`/login/email`)에 필수 입력으로 넣음
+- `POST /api/auth/email/signup`, `POST /api/auth/email/login` - 이메일 로그인은
+  비밀번호 무차별 대입 방지용 레이트리밋(시간당 20회) 추가
+
+**실제로 재현해서 발견한 것**: 로컬에서 회원가입을 실제로 호출해보니
+`auth/configuration-not-found` 에러가 남 - 이 Firebase 프로젝트에
+**Authentication 자체가 아직 한 번도 활성화된 적이 없어서**(콘솔에서
+"시작하기"를 누른 적이 없음) 나는 에러였음. Admin SDK의 `createUser` 호출
+자체는 콘솔에서 이메일/비밀번호 제공업체를 켜지 않아도 되지만, Authentication
+기능 자체는 콘솔에서 최초 활성화가 필요하다는 걸 이번에 알게 됨 - 서버 로그에
+원인이 명확히 남도록 이 에러 코드만 따로 잡아서 안내 로그를 추가함. 이메일
+형식/비밀번호 길이/닉네임 누락 등 자체 검증 로직은 Firebase 호출 전에 걸려서
+정상 작동 확인(400으로 잘 응답함).
+
+`npm run build`, `npm run lint`, `npx vitest run`(39개) 통과.
+
+## 다음에 이어서 할 만한 것 - 프롬프트 9 잔여 (콘솔 설정 필요)
+- **Firebase**: 콘솔 > Authentication > 시작하기로 최초 활성화 + "이메일/비밀번호"
+  제공업체 켜기, 프로젝트 설정 > 일반에서 "웹 API 키" 복사해 `FIREBASE_WEB_API_KEY`로 설정
+- **카카오**: 기존 앱에 "카카오 로그인" 상품 추가 활성화 + "생년" 동의항목 켜기 +
+  Redirect URI(`{도메인}/api/auth/kakao/callback`) 등록 + Client Secret 발급해
+  `KAKAO_CLIENT_SECRET`로 설정
+- **네이버**: "네이버 아이디로 로그인" 앱 신규 등록 + "출생연도" 제공정보 켜기 +
+  Callback URL(`{도메인}/api/auth/naver/callback`) 등록해 `NAVER_CLIENT_ID`/
+  `NAVER_CLIENT_SECRET` 설정
+- 위 콘솔 설정 전부 끝나면(로컬 `.env.local` + Vercel 둘 다) 브라우저로 세 가지
+  로그인 경로를 실제로 끝까지 재검증해야 함(지금까진 가짜 세션 + API 직접 호출로만
+  검증했음)
 
 ## 2026-08-27
 
