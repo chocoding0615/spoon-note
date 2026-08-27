@@ -93,6 +93,39 @@
 - 세 폴더 파서 다 비공식 내부 API라 서비스 측 변경으로 언제든 깨질 수 있음 - 실제로
   안 되기 시작하면 이 워크로그의 조사 내용부터 다시 확인
 
+## 프롬프트 5 — 보드 상세 화면에 랭킹 반영
+
+프롬프트 3(엔티티 매칭 + saveCount 집계)에서 만든 canonical place 데이터를
+실제 화면에 반영. `Entry.canonicalId`는 이미 엔트리 추가 시점에 저장돼 있어서,
+보드 상세 페이지(`app/b/[slug]/page.tsx`)에서 엔트리들의 canonicalId를 모아
+한 번에 `getSaveCounts()`(신규, `canonicalPlaceService.ts` - `db.getAll()`로
+배치 조회)로 조회한 뒤 클라이언트 컴포넌트에 `saveCounts: Record<canonicalId, count>`로
+내려주는 방식으로 구현. canonicalId가 없거나 카운트 조회에 없는 장소는 0으로
+취급해서 뱃지를 숨김(요구사항 4).
+
+- `MapView.tsx` - 마커에 "🔥 N" 뱃지를 얹은 커스텀 divIcon(`buildMarkerIcon`),
+  `COMMUNITY.goldThreshold` 이상이면 마커 점 색도 금색으로 변경. 팝업에도 카운트 표시
+- `EntryCard.tsx` - 소스 뱃지 옆에 찜 횟수 뱃지 추가, 임계값 이상이면 카드
+  테두리/배경/제목 색을 금색 계열로 강조
+- `RankableEntryList.tsx` - "인기순 보기" 체크박스 추가. 켜면 `entries`를
+  건드리지 않고 렌더링용 배열만 찜 횟수 내림차순으로 정렬해서 보여줌
+  (`onReorder` 호출 안 함 - 저장된 드래그 순서는 그대로 유지). 켜져 있는 동안은
+  드래그를 꺼서(`dragEnabled`) "정렬 기준이 다른데 드래그로 순서를 바꾸는" 혼란
+  방지
+- 알려진 한계: `saveCounts`는 페이지 최초 로드 시점 서버에서 한 번만 조회한
+  값이라, 같은 화면에서 새로 추가한 엔트리는 새로고침 전까지 뱃지가 안 붙음
+  (요구사항에 실시간 갱신은 없었음 - 필요해지면 postEntry 응답에 카운트도
+  같이 내려주는 방식으로 확장 가능)
+
+**검증**: 로컬 dev 서버(기존에 떠있던 3001 포트 재사용)에서 보드 2개를
+만들어 같은 카카오 place ID(가짜 숫자 ID)로 각각 엔트리를 추가 → 두 번째
+추가 후 `canonicalId`가 동일하게 결정적으로 매칭되는 것 확인 → 보드 상세
+페이지 HTML을 직접 떠서(`curl`) "🔥 2" 뱃지와 금색 클래스(`border-amber-300`,
+`eab308`)가 실제로 렌더링되는 것 확인. 두 보드 삭제 후 `removePlaceSave`가
+saveCount를 정확히 0으로 되돌리는 것까지 확인하고, 남은 canonical place
+테스트 문서는 일회성 스크립트로 직접 삭제해서 정리. `npm run build`,
+`npm run lint`, `npx vitest run`(27개 전부 통과) 확인 완료.
+
 ## 다른 PC(사무실 등)에서 이어서 작업할 때 체크리스트
 - `git pull`(또는 처음이면 `gh repo clone chocoding0615/spoon-note`)로 코드는 받아짐
 - **`.env.local`은 git에 안 올라감**(`.gitignore`) - Firebase 서비스 계정 키

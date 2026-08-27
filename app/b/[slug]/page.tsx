@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getViewableBoard } from "@/lib/services/boardService";
 import { listEntries } from "@/lib/services/entryService";
+import { getSaveCounts } from "@/lib/services/canonicalPlaceService";
 import { BoardDetailClient } from "@/components/board/BoardDetailClient";
 
 interface PageProps {
@@ -35,11 +36,14 @@ export default async function BoardDetailPage({ params, searchParams }: PageProp
 
   const entries = await listEntries(slug);
   const isOwner = Boolean(ownerKey) && ownerKey === board.ownerKey;
+  const canonicalIds = entries.map((entry) => entry.canonicalId).filter((id): id is string => Boolean(id));
+  const saveCounts = await getSaveCounts(canonicalIds);
 
   return (
     <BoardDetailClient
       board={board}
       initialEntries={entries}
+      saveCounts={saveCounts}
       isOwner={isOwner}
       ownerKey={isOwner ? ownerKey : undefined}
       initialView={view === "map" ? "map" : "list"}

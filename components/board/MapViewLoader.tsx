@@ -14,6 +14,6 @@ const MapView = dynamic(() => import("./MapView"), {
   ),
 });
 
-export function MapViewLoader({ entries }: { entries: Entry[] }) {
-  return <MapView entries={entries} />;
+export function MapViewLoader({ entries, saveCounts }: { entries: Entry[]; saveCounts: Record<string, number> }) {
+  return <MapView entries={entries} saveCounts={saveCounts} />;
 }

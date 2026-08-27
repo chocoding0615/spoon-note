@@ -9,8 +9,10 @@ interface RankableEntryListProps {
   entries: Entry[];
   /** ownerKey 보유 시(§5-4)에만 드래그 정렬을 허용한다. */
   editable: boolean;
-  /** 마지막 저장 이후 순서가 바뀌었는지 - 저장 버튼 노출 여부를 부모가 판정해서 내려준다. */
+  /** 마지막으로 서버에 저장된 순서와 다른지 - 저장 버튼 노출 여부를 부모가 판정해서 내려준다. */
   dirty: boolean;
+  /** canonicalId -> 커뮤니티 찜 횟수. 뱃지 표시 및 "인기순 보기" 정렬에 쓴다. */
+  saveCounts: Record<string, number>;
   /** 드롭 시점마다 호출 - 부모가 setEntries 한다(이 컴포넌트는 데이터를 소유하지 않음). */
   onReorder: (next: Entry[]) => void;
   /** 저장 버튼 클릭 - 부모가 PATCH하고 저장 완료 상태를 갱신한다. */
@@ -24,10 +26,20 @@ interface RankableEntryListProps {
 // 1회 복사했는데, 부모가 장소를 추가해도 이 복사본은 안 늘어나서 리스트 뷰에 머문
 // 채로는 새 항목이 안 보이는 버그가 있었다(지도 탭 갔다 와야 remount되어 보임).
 // dragIndex/saving처럼 서버에 저장되지 않는 순수 UI 상태만 내부에 둔다.
-export function RankableEntryList({ entries, editable, dirty, onReorder, onSaveOrder }: RankableEntryListProps) {
+export function RankableEntryList({
+  entries,
+  editable,
+  dirty,
+  saveCounts,
+  onReorder,
+  onSaveOrder,
+}: RankableEntryListProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  // 화면에 보여줄 순서만 임시로 바꾸는 뷰 상태 - onReorder를 호출하지 않으므로
+  // entries(=사용자가 드래그로 저장한 실제 순서)는 건드리지 않는다.
+  const [popularFirst, setPopularFirst] = useState(false);
 
   if (entries.length === 0) {
     return (
@@ -58,25 +70,51 @@ export function RankableEntryList({ entries, editable, dirty, onReorder, onSaveO
     }
   }
 
+  // 인기순 정렬은 렌더링용 임시 배열이다 - 드래그는 popularFirst일 때 꺼서(dragEnabled)
+  // "저장된 순서를 보면서 드래그" 전제가 깨지지 않게 한다.
+  const displayEntries = popularFirst
+    ? [...entries].sort((a, b) => {
+        const countA = a.canonicalId ? (saveCounts[a.canonicalId] ?? 0) : 0;
+        const countB = b.canonicalId ? (saveCounts[b.canonicalId] ?? 0) : 0;
+        return countB - countA;
+      })
+    : entries;
+  const dragEnabled = editable && !popularFirst;
+
   return (
     <div className="flex flex-col gap-3">
-      {editable && dirty && (
-        <div className="flex items-center justify-end gap-3">
-          {saveError && <p className="text-sm text-red-500">{saveError}</p>}
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "저장 중..." : "순서 저장"}
-          </Button>
-        </div>
-      )}
-      {entries.map((entry, index) => (
+      <div className="flex items-center justify-between gap-3">
+        <label className="flex items-center gap-2 text-sm text-stone-600">
+          <input
+            type="checkbox"
+            checked={popularFirst}
+            onChange={(event) => setPopularFirst(event.target.checked)}
+            className="h-4 w-4 rounded border-stone-300"
+          />
+          인기순 보기
+        </label>
+        {dragEnabled && dirty && (
+          <div className="flex items-center gap-3">
+            {saveError && <p className="text-sm text-red-500">{saveError}</p>}
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "저장 중..." : "순서 저장"}
+            </Button>
+          </div>
+        )}
+      </div>
+      {displayEntries.map((entry, index) => (
         <div
           key={entry.id}
-          draggable={editable}
+          draggable={dragEnabled}
           onDragStart={() => setDragIndex(index)}
-          onDragOver={(event) => editable && event.preventDefault()}
+          onDragOver={(event) => dragEnabled && event.preventDefault()}
           onDrop={() => handleDrop(index)}
         >
-          <EntryCard entry={entry} dragHandleProps={editable ? {} : undefined} />
+          <EntryCard
+            entry={entry}
+            saveCount={entry.canonicalId ? (saveCounts[entry.canonicalId] ?? 0) : 0}
+            dragHandleProps={dragEnabled ? {} : undefined}
+          />
         </div>
       ))}
     </div>

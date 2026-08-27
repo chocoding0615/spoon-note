@@ -149,3 +149,24 @@ export async function getCanonicalPlace(canonicalId: string): Promise<CanonicalP
   if (!snap.exists) return null;
   return { id: snap.id, ...snap.data() } as CanonicalPlace;
 }
+
+/** 보드 상세 화면에 찜 횟수 뱃지를 그리기 위해, 엔트리들이 가진 canonicalId
+ *  목록을 한 번에 조회한다. getAll로 배치 조회해서 canonicalId 개수만큼
+ *  순차 요청하지 않는다. 존재하지 않는 id(레이스 등으로 삭제된 경우)는 결과에서 빠진다 -
+ *  호출부는 없는 id를 count 0(뱃지 숨김)으로 취급하면 된다. */
+export async function getSaveCounts(canonicalIds: string[]): Promise<Record<string, number>> {
+  const uniqueIds = Array.from(new Set(canonicalIds));
+  if (uniqueIds.length === 0) return {};
+
+  const db = getDb();
+  const refs = uniqueIds.map((id) => db.collection(CANONICAL_PLACES_COLLECTION).doc(id));
+  const snaps = await db.getAll(...refs);
+
+  const result: Record<string, number> = {};
+  snaps.forEach((snap) => {
+    if (snap.exists) {
+      result[snap.id] = (snap.data() as CanonicalPlace).saveCount;
+    }
+  });
+  return result;
+}

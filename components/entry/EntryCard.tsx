@@ -1,17 +1,24 @@
 import type { HTMLAttributes } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { StarRating } from "@/components/ui/StarRating";
-import { SOURCE_META } from "@/lib/constants";
+import { COMMUNITY, SOURCE_META } from "@/lib/constants";
 import type { Entry } from "@/lib/types";
 
 interface EntryCardProps {
   entry: Entry;
+  /** 이 장소의 커뮤니티 찜 횟수. 0이거나 매칭 데이터가 없으면 뱃지를 안 보여준다. */
+  saveCount?: number;
   dragHandleProps?: HTMLAttributes<HTMLButtonElement>;
 }
 
-export function EntryCard({ entry, dragHandleProps }: EntryCardProps) {
+export function EntryCard({ entry, saveCount = 0, dragHandleProps }: EntryCardProps) {
+  const gold = saveCount >= COMMUNITY.goldThreshold;
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-stone-200 bg-white p-4">
+    <div
+      className={`flex items-start gap-3 rounded-2xl border p-4 ${
+        gold ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"
+      }`}
+    >
       {dragHandleProps && (
         <button
           type="button"
@@ -23,10 +30,17 @@ export function EntryCard({ entry, dragHandleProps }: EntryCardProps) {
       )}
       <div className="flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p className="font-medium text-stone-900">{entry.placeName}</p>
-          <Badge color={SOURCE_META[entry.source].color} textColor={SOURCE_META[entry.source].textColor}>
-            {SOURCE_META[entry.source].label}
-          </Badge>
+          <p className={`font-medium ${gold ? "text-amber-700" : "text-stone-900"}`}>{entry.placeName}</p>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {saveCount > 0 && (
+              <Badge color={gold ? "#eab308" : "#78716c"} textColor="#ffffff">
+                🔥 {saveCount}
+              </Badge>
+            )}
+            <Badge color={SOURCE_META[entry.source].color} textColor={SOURCE_META[entry.source].textColor}>
+              {SOURCE_META[entry.source].label}
+            </Badge>
+          </div>
         </div>
         {entry.address && <p className="mt-0.5 text-sm text-stone-500">{entry.address}</p>}
         {entry.memo && <p className="mt-2 text-sm text-stone-700">{entry.memo}</p>}

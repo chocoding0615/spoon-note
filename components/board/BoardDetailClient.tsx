@@ -15,6 +15,9 @@ type ViewMode = "list" | "map";
 interface BoardDetailClientProps {
   board: Board;
   initialEntries: Entry[];
+  /** canonicalId -> 커뮤니티 찜 횟수. 서버(page.tsx)에서 한 번에 조회해 내려준다 -
+   *  이 화면 안에서 새로 추가한 엔트리는 다음 새로고침 전까지 뱃지가 안 붙는다(알려진 한계). */
+  saveCounts: Record<string, number>;
   isOwner: boolean;
   ownerKey?: string;
   initialView: ViewMode;
@@ -23,6 +26,7 @@ interface BoardDetailClientProps {
 export function BoardDetailClient({
   board,
   initialEntries,
+  saveCounts,
   isOwner,
   ownerKey,
   initialView,
@@ -114,12 +118,13 @@ export function BoardDetailClient({
       </div>
 
       {view === "map" ? (
-        <MapViewLoader entries={entries} />
+        <MapViewLoader entries={entries} saveCounts={saveCounts} />
       ) : (
         <RankableEntryList
           entries={entries}
           editable={isOwner}
           dirty={dirty}
+          saveCounts={saveCounts}
           onReorder={setEntries}
           onSaveOrder={handleSaveOrder}
         />
