@@ -7,9 +7,15 @@ export function buildKakaoAuthorizeUrl(redirectUri: string, state: string): stri
     response_type: "code",
     state,
     // "생년"(birthyear) 동의항목은 카카오 개발자 콘솔 "카카오 로그인 > 동의항목"에서
-    // 별도로 켜야 실제 값이 온다(§설계안 06) - 안 켜져 있으면 이 스코프는 그냥
-    // 동의 화면에 안 뜨고 응답에도 빠질 뿐, 로그인 자체가 깨지진 않는다.
-    scope: "profile_nickname profile_image birthyear",
+    // 켜야 하는데, 실측 확인(2026-08-27) 결과 활성화 안 된 상태에서 스코프에
+    // 넣으면 조용히 빠지는 게 아니라 인가 요청 자체가 KOE205(허용되지 않은
+    // scope) 에러로 거부된다 - 예전 주석은 틀렸다. 게다가 "생년" 동의항목은
+    // 최근 정책상 사업자 등록이 있어야 콘솔에서 활성화 자체가 가능해서, 사업자
+    // 등록 전까진 요청할 방법이 없다. 그래서 일단 빼고, birthYear는 항상
+    // null로 내려간다(§fetchKakaoProfile) - 기존 "연령 미상 = 안전 우선 차단"
+    // 로직이 그대로 적용돼 커뮤니티공개만 못 쓰고 나머지 기능은 정상 동작한다.
+    // 사업자 등록 후 "생년" 동의항목을 켜면 이 scope를 다시 추가하면 된다.
+    scope: "profile_nickname profile_image",
   });
   return `https://kauth.kakao.com/oauth/authorize?${params.toString()}`;
 }
