@@ -8,6 +8,20 @@ let app: App | undefined;
 
 function getApp(): App {
   if (app) return app;
+
+  // TEMP 진단 로그(2026-08-27) - 프로덕션에서 "project_id" 누락 에러가 반복돼서
+  // 실제 값이 아니라 존재 여부/길이만 찍어서 원인 확인 후 지울 예정.
+  console.log("[firebaseAdmin] env 진단:", {
+    hasProjectId: Boolean(process.env.FIREBASE_PROJECT_ID),
+    projectIdLength: process.env.FIREBASE_PROJECT_ID?.length ?? 0,
+    hasClientEmail: Boolean(process.env.FIREBASE_CLIENT_EMAIL),
+    clientEmailLength: process.env.FIREBASE_CLIENT_EMAIL?.length ?? 0,
+    hasPrivateKey: Boolean(process.env.FIREBASE_PRIVATE_KEY),
+    privateKeyLength: process.env.FIREBASE_PRIVATE_KEY?.length ?? 0,
+    privateKeyStartsWithDash: process.env.FIREBASE_PRIVATE_KEY?.trimStart().startsWith("-----BEGIN") ?? false,
+    privateKeyStartsWithQuote: process.env.FIREBASE_PRIVATE_KEY?.trimStart().startsWith('"') ?? false,
+  });
+
   app = getApps().length
     ? getApps()[0]
     : initializeApp({
