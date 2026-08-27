@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
@@ -98,28 +99,53 @@ export function CreateBoardPasteBox() {
     saveOwnerKey(newBoard.slug, newBoard.ownerKey);
     setBoard(newBoard);
 
+    let importData: ImportListResponse | null;
     try {
       const importRes = await fetch(`/api/boards/${newBoard.slug}/import-list`, {
         method: "POST",
         headers: { "Content-Type": "application/json", [OWNER_KEY_HEADER]: newBoard.ownerKey },
         body: JSON.stringify({ url: trimmedUrl }),
       });
-      const importData = (await importRes.json().catch(() => null)) as ImportListResponse | null;
-
-      if (importData?.isPlacelist) {
-        const count = importData.totalCount ?? importData.places?.length ?? 0;
-        await renameBoard(newBoard, importData.folderName || `가져온 보드 (${count}개 장소)`);
-        setImportState({ url: trimmedUrl, result: importData });
-        setPhase("placelist");
+      // 응답이 실패(429 레이트리밋 등)거나 형식이 이상하면 "폴더 아님(isPlacelist:false)"과
+      // 절대 헷갈리면 안 된다 - 예전엔 여기서 상태코드를 안 봐서, 레이트리밋에 걸려도
+      // 조용히 "인식 실패"로 취급되며 빈 보드로 넘어가는 버그가 있었다(보드는 저장되는데
+      // 장소 데이터는 못 가져오는 것처럼 보임).
+      if (!importRes.ok) {
+        const data = await importRes.json().catch(() => null);
+        setErrorMessage(data?.error ?? "장소 정보를 가져오지 못했어요. 잠시 후 다시 시도해주세요.");
+        setPhase("error");
         return;
       }
+      importData = (await importRes.json().catch(() => null)) as ImportListResponse | null;
+      if (!importData) throw new Error("응답을 읽지 못했어요.");
+    } catch {
+      setErrorMessage("장소 정보를 가져오지 못했어요. 잠시 후 다시 시도해주세요.");
+      setPhase("error");
+      return;
+    }
 
-      // 폴더 링크가 아니면 기존 단일 링크 파싱으로 폴백(§PasteBox.parseSinglePlace와 동일 API)
+    if (importData.isPlacelist) {
+      const count = importData.totalCount ?? importData.places?.length ?? 0;
+      await renameBoard(newBoard, importData.folderName || `가져온 보드 (${count}개 장소)`);
+      setImportState({ url: trimmedUrl, result: importData });
+      setPhase("placelist");
+      return;
+    }
+
+    // 폴더 링크가 아니면(isPlacelist:false, 정상 응답) 기존 단일 링크 파싱으로
+    // 폴백한다(§PasteBox.parseSinglePlace와 동일 API).
+    try {
       const parseRes = await fetch("/api/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: trimmedUrl }),
       });
+      if (!parseRes.ok) {
+        const data = await parseRes.json().catch(() => null);
+        setErrorMessage(data?.error ?? "장소 정보를 가져오지 못했어요. 잠시 후 다시 시도해주세요.");
+        setPhase("error");
+        return;
+      }
       const parseData = (await parseRes.json().catch(() => null)) as ParseResponse | null;
 
       if (parseData?.parsed) {
@@ -134,10 +160,12 @@ export function CreateBoardPasteBox() {
           category: parseData.parsed.category,
         });
       }
-      // 인식 자체가 안 된 링크여도 보드는 이미 만들어졌으니, 그 안에서 직접 추가하면 된다.
+      // parsed가 null이면 진짜 인식 불가(정상 응답) - 보드는 이미 만들어졌으니
+      // 그 안에서 직접 추가하면 된다(다른 화면의 "자동으로 인식하지 못한 링크"와 동일 취급).
       goToBoard(newBoard);
     } catch {
-      goToBoard(newBoard);
+      setErrorMessage("네트워크 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
+      setPhase("error");
     }
   }
 
@@ -170,7 +198,16 @@ export function CreateBoardPasteBox() {
           {phase === "creating" ? <Spinner /> : "스푼으로 떠먹기 🥄"}
         </Button>
       </form>
-      {phase === "error" && <p className="mt-3 text-sm text-red-500">{errorMessage}</p>}
+      {phase === "error" && (
+        <div className="mt-3 text-sm">
+          <p className="text-red-500">{errorMessage}</p>
+          {board && (
+            <Link href={`/b/${board.slug}?ownerKey=${board.ownerKey}`} className="mt-1 inline-block text-accent hover:underline">
+              빈 보드는 만들어졌어요 - 안에서 직접 추가하기
+            </Link>
+          )}
+        </div>
+      )}
     </div>
   );
 }
