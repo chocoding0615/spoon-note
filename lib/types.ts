@@ -29,6 +29,10 @@ export interface Entry {
   country?: string; // Phase 3 집계 대비, 지금부터 수집
   city?: string;
   authorName?: string;
+  /** 이 엔트리가 연결된 canonicalPlaces 문서 ID. 매칭 시점에 결정돼 엔트리에
+   *  고정 저장한다 - 삭제 시 그때 다시 매칭을 계산하면 그사이 데이터가 바뀌어
+   *  다른 결과가 나올 수 있어서, 추가 당시 결정된 값을 그대로 써서 감소시켜야 함 */
+  canonicalId?: string;
   createdAt: number;
 }
 
@@ -74,4 +78,31 @@ export interface ImportListResponse {
   /** 파서가 끝까지 못 가져오고 중간에 실패해서 지금까지 모은 것만 반환한 경우 true */
   partial?: boolean;
   error?: string;
+}
+
+/** 서로 다른 소스(네이버/카카오/구글)에서 같은 실제 장소를 가리키는 엔트리들을
+ *  하나로 묶은 것. "몇 개의 보드에 찜됐는지"(saveCount) 집계의 단위가 된다. */
+export interface CanonicalPlace {
+  id?: string;
+  placeName: string;
+  lat?: number;
+  lng?: number;
+  /** 이 장소를 담은 서로 다른 보드 수 - 엔트리 수가 아니라 보드 수(한 보드가
+   *  같은 장소를 두 번 담아도 1로만 집계). 정확한 집계는
+   *  canonicalPlaces/{id}/boards 서브컬렉션 문서 존재 여부로 트랜잭션 안에서 판정. */
+  saveCount: number;
+  /** 원본 링크/ID들 - 나중에 잘못 묶인 걸 수동으로 분리할 수 있게 전부 유지 */
+  sources: { source: PlaceSource; placeId: string; sourceUrl: string }[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** canonicalPlaces/{canonicalId}/boards/{boardId} 서브컬렉션 문서.
+ *  문서 ID를 boardId로 고정해서, 트랜잭션 안에서 "이 보드가 이미 카운트에
+ *  반영됐는지"를 쿼리 없이 결정적으로(get by ID) 확인할 수 있게 한다. */
+export interface CanonicalPlaceBoardLink {
+  boardId: string;
+  /** 같은 보드에서 이 장소를 가리키는 엔트리 ID들(보통 1개, 중복 추가 시 여러 개) */
+  entryIds: string[];
+  addedAt: number;
 }

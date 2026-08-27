@@ -1,6 +1,7 @@
 import { getDb } from "../firebaseAdmin";
 import { LIMITS, SOURCE_META } from "../constants";
 import { ValidationError, OwnershipError, NotFoundError } from "./errors";
+import { recordPlaceSave } from "./canonicalPlaceService";
 import type { Board, Entry } from "../types";
 
 const BOARDS_COLLECTION = "boards";
@@ -91,7 +92,26 @@ export async function addEntry(slug: string, input: AddEntryInput): Promise<Entr
   };
 
   const ref = await db.collection(ENTRIES_COLLECTION).add(entry);
-  return { id: ref.id, ...entry };
+
+  // 커뮤니티 랭킹(같은 장소를 여러 보드가 찜한 것 집계)은 부가 기능이라, 여기서
+  // 실패해도 "장소를 보드에 담기"라는 핵심 동작 자체는 성공해야 한다 - fail-open.
+  let canonicalId: string | undefined;
+  try {
+    canonicalId = await recordPlaceSave({
+      entryId: ref.id,
+      boardId: slug,
+      source: entry.source,
+      placeName: entry.placeName,
+      sourceUrl: entry.sourceUrl,
+      lat: entry.lat,
+      lng: entry.lng,
+    });
+    await ref.update({ canonicalId });
+  } catch (error) {
+    console.error("[entries] canonical place 집계 실패(엔트리 추가 자체는 성공):", error);
+  }
+
+  return { id: ref.id, ...entry, canonicalId };
 }
 
 export async function reorderEntries(slug: string, ownerKey: string, orderedIds: string[]): Promise<void> {

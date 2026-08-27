@@ -244,3 +244,49 @@ UI 실패 은폐 → 구글 파서 취약점 → SSRF/레이트리밋.
 
 전부 `npm run build`/`lint` 통과, 로컬 dev 서버로 SSRF 차단·정상 파싱(카카오/
 구글)·가짜 도메인 차단까지 재현 확인.
+
+### 2026-08-27 — 커뮤니티 랭킹 데이터 레이어 (엔티티 매칭 + 트랜잭션 세이프 카운트)
+
+"여러 사람이 각자의 보드에 저장한 장소 중 같은 곳이 몇 번 찜됐는지" 집계하는
+데이터 레이어 신규 구현(UI는 다음 단계). 처음으로 테스트 러너(vitest) 도입.
+
+**설계**
+- `lib/services/matching.ts` — 순수 함수만 모음(부작용 없음, Firestore 접근
+  없음): `extractPlaceId`(네이버/카카오 sourceUrl에서 원본 place ID 추출 -
+  구글/manual은 안정적 ID가 없어 항상 null), `haversineDistanceMeters`,
+  `nameSimilarity`(Levenshtein 기반), `decideMatch`(같은 소스+ID면 정확 매칭,
+  아니면 좌표 50m 이내 + 이름 유사도 0.6 이상일 때만 근사 매칭 - 애매하면
+  별개로 둠). 순수 함수라 Firestore 없이 유닛테스트 가능
+- `lib/services/canonicalPlaceService.ts` — Firestore I/O.
+  `canonicalPlaces/{id}` 컬렉션 + `canonicalPlaces/{id}/boards/{boardId}`
+  서브컬렉션(문서 ID를 boardId로 고정해서 "이 보드가 이미 카운트에
+  반영됐는지"를 쿼리 없이 결정적으로 확인). 원본 ID가 있는 소스(네이버/카카오)는
+  `canonicalId`를 `"source:placeId"`로 고정해서, 같은 장소를 동시에 처음
+  등록해도 두 요청이 같은 문서로 수렴함(레이스 없음) - 원본 ID가 없는
+  구글/manual만 좁은 레이스가 남는 걸 알고 감수
+- `lib/constants.ts`의 `COMMUNITY` — `goldThreshold`(기본 2), `matchRadiusMeters`
+  (50), `matchNameSimilarity`(0.6) 하드코딩 금지, config로 분리
+- `entryService.addEntry`/`boardService.deleteBoard`에 연결 - 둘 다 실패해도
+  핵심 동작(엔트리 추가/보드 삭제)은 성공해야 해서 fail-open(로그만 남김).
+  `Entry.canonicalId`를 추가 시점에 고정 저장해서, 삭제 시 그 값으로 정확히
+  되돌림(그때 다시 매칭하면 데이터가 바뀌어 다른 결과가 나올 수 있어 금지)
+
+**실제 발견한 버그 2건**
+1. **Firestore 트랜잭션 안에서 `Promise.all([tx.get(a), tx.get(b)])`가 조용히
+   씹힘** - 에러 없이 트랜잭션이 "성공"하지만 실제로는 아무것도 안 써짐(로컬
+   재현으로 발견). 두 `tx.get()`을 순차 `await`로 바꿔서 해결
+2. **테스트 데이터 오염이 근사 매칭을 오작동시킴** - 여러 테스트가 같은 좌표
+   (37.5, 127.0)를 공유해서 썼는데, 실패한 테스트가 정리 전에 만든 orphan
+   canonical place가 다음 테스트 실행에서 "가까운 후보"로 잡혀 엉뚱하게
+   매칭됨. 테스트마다 서로 수십km씩 떨어진 좌표를 쓰도록 고쳐서 근본 해결.
+   기존에 쌓인 orphan 문서(테스트 실패로 13개 남아있었음)도 정리함
+
+**검증**: 유닛테스트 20개(matching.ts) + 통합테스트 5개(canonicalPlaceService.ts,
+실제 dev Firebase 프로젝트에 direct로 붙어서 검증 - 10개 보드 동시 추가해도
+saveCount 정확히 10, 같은 보드 중복 추가는 1 유지, 다른 서비스 근사 매칭,
+50m 밖은 매칭 안 함, 보드 삭제 시 정확히 감소) 전부 통과. 실제 dev 서버로
+카카오 엔트리 추가 → `canonicalId:"kakao:8098381"` 응답 확인 → 보드 삭제 →
+saveCount 0으로 감소까지 실제 API로 재현 확인. 테스트로 만든 데이터는 전부 정리.
+
+**다음 단계(미착수)**: UI에서 saveCount/goldThreshold 노출(예: EntryCard에
+"인기 장소" 배지), canonical place 조회 API 라우트.

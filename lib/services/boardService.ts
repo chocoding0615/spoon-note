@@ -3,7 +3,8 @@ import { getDb } from "../firebaseAdmin";
 import { generateSlug } from "../utils/slug";
 import { LIMITS } from "../constants";
 import { ValidationError, OwnershipError } from "./errors";
-import type { Board, Visibility } from "../types";
+import { removePlaceSave } from "./canonicalPlaceService";
+import type { Board, Entry, Visibility } from "../types";
 
 const BOARDS_COLLECTION = "boards";
 const ENTRIES_COLLECTION = "entries";
@@ -117,6 +118,20 @@ export async function deleteBoard(slug: string, ownerKey: string): Promise<boole
   entriesSnap.docs.forEach((doc) => batch.delete(doc.ref));
   batch.delete(ref);
   await batch.commit();
+
+  // canonical place 집계는 부가 기능이라 여기서 실패해도 보드 삭제 자체는
+  // 이미 끝난 뒤다(fail-open) - 카운트가 어긋나는 것보다 삭제가 막히는 게 더 나쁘다.
+  await Promise.all(
+    entriesSnap.docs.map(async (doc) => {
+      const entry = doc.data() as Entry;
+      if (!entry.canonicalId) return;
+      try {
+        await removePlaceSave(doc.id, slug, entry.canonicalId);
+      } catch (error) {
+        console.error("[boards] canonical place 감소 실패(보드 삭제 자체는 완료):", error);
+      }
+    })
+  );
 
   return true;
 }

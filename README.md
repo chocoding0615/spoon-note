@@ -24,6 +24,17 @@ npm run dev                  # http://localhost:3001 (3000은 다른 프로젝�
   URL에서 뽑은 값만 사용
 - `NEXT_PUBLIC_SITE_URL` — `generateMetadata`의 `metadataBase` 등에 사용
 
+### 테스트
+
+```bash
+npm test
+```
+
+`vitest` 사용. `lib/services/matching.test.ts`는 순수 로직만(Firestore 불필요),
+`lib/services/canonicalPlaceService.test.ts`는 `.env.local`의 실제 Firebase
+프로젝트에 direct로 붙는 통합 테스트(에뮬레이터 미구성) - 종료 시 테스트 데이터는
+자동 정리됨.
+
 ## 알려진 이슈 (코드리뷰 결과)
 
 외부 코드리뷰 8개 관점으로 전체 브랜치를 검토해 14건을 발견(2026-08-26).
