@@ -681,14 +681,22 @@ Firestore에서 그 보드의 생성 시각을 직접 조회해보니 바로 전
 
 ## 다른 PC(사무실 등)에서 이어서 작업할 때 체크리스트
 - `git pull`(또는 처음이면 `gh repo clone chocoding0615/spoon-note`)로 코드는 받아짐
-- **`.env.local`은 git에 안 올라감**(`.gitignore`) - Firebase 서비스 계정 키
-  (`FIREBASE_PROJECT_ID`/`FIREBASE_CLIENT_EMAIL`/`FIREBASE_PRIVATE_KEY`)는 직접
-  옮겨야 함. Vercel에 이미 등록은 돼있지만 Sensitive라 `vercel env pull`로는
-  평문을 못 가져오니, USB 등으로 `.env.local` 파일 자체를 옮기는 게 제일 확실함
+- **`.env.local`은 git에 안 올라감**(`.gitignore`), 그런데 파일을 직접 옮길
+  필요는 없다 - **정정(2026-08-28): "Sensitive라 `vercel env pull`로 못
+  가져온다"는 아래 예전 기록은 틀렸음**, 실제로 해보니 전부 평문으로 잘
+  받아짐:
+  ```
+  npx vercel login          # chocoding0615 계정으로 브라우저 로그인
+  npx vercel link           # 기존 spoon-note 프로젝트에 연결
+  npx vercel env pull .env.local --environment=production
+  ```
+  받아진 뒤 `NEXT_PUBLIC_SITE_URL`만 로컬 개발용으로
+  `http://localhost:3001`로 고쳐줄 것(production 값이 그대로 딸려옴). USB로
+  파일 옮기는 건 이제 필요 없음 - 계정 로그인만 되면 어디서든 이 방법이 제일 빠름
 - `npm install` (node_modules도 git에 없음)
 - 그 다음 `npm run dev`로 3001 포트에서 바로 이어서 작업 가능
 - **프롬프트 9(계정 시스템) env 값들 - 2026-08-27 오후에 전부 채움**(로컬+Vercel
   둘 다). `FIREBASE_WEB_API_KEY`/`KAKAO_CLIENT_SECRET`/`NAVER_CLIENT_ID`/
-  `NAVER_CLIENT_SECRET` 다른 PC로 옮길 때도 `.env.local` 파일 전체를 옮기면
-  같이 딸려감(위 "콘솔 설정 3가지 전부 완료" 섹션에 각 값이 어디서 나온
-  건지 기록해둠 - 콘솔에서 다시 찾아야 할 때 참고)
+  `NAVER_CLIENT_SECRET`도 위 `vercel env pull` 한 번으로 전부 같이 딸려옴(위
+  "콘솔 설정 3가지 전부 완료" 섹션에 각 값이 어디서 나온 건지도 기록해둠 -
+  콘솔에서 다시 찾아야 할 때 참고)
