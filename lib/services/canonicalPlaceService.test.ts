@@ -9,6 +9,7 @@ import { getCanonicalPlace, recordPlaceSave, removePlaceSave } from "./canonical
 // 의미 있게 검증하기 어렵다 - 이 프로젝트에 아직 에뮬레이터 설정이 없어서,
 // 개발용 프로젝트에 실제로 쓰고 지우는 방식을 택했다(테스트 종료 시 정리함).
 const CANONICAL_PLACES_COLLECTION = "canonicalPlaces";
+const SAVE_EVENTS_COLLECTION = "placeSaveEvents";
 
 // 카카오/네이버 실제 place ID는 순수 숫자 문자열이고, extractPlaceId의 정규식도
 // 숫자만 매칭한다 - UUID를 쓰면 정규식이 안 걸려서 실제 동작과 다른 경로(근사
@@ -35,6 +36,17 @@ afterEach(async () => {
     const boardLinks = await ref.collection("boards").get();
     await Promise.all(boardLinks.docs.map((doc) => doc.ref.delete()));
     await ref.delete().catch(() => {});
+  }
+  // recordPlaceSave가 새로 찜될 때마다 placeSaveEvents에도 이벤트를 남기니까
+  // (§프롬프트 10 "이번 주 급상승") 이것도 안 지우면 테스트용 가짜 장소 이름이
+  // 실제 프로젝트의 급상승 집계에 며칠간 섞여 들어간다 - 'in' 쿼리는 최대 10개까지라
+  // createdCanonicalIds가 그보다 작은(테스트당 1~2개) 지금 규모에선 안전하다.
+  if (createdCanonicalIds.size > 0) {
+    const eventsSnap = await db
+      .collection(SAVE_EVENTS_COLLECTION)
+      .where("canonicalId", "in", Array.from(createdCanonicalIds).slice(0, 10))
+      .get();
+    await Promise.all(eventsSnap.docs.map((doc) => doc.ref.delete()));
   }
   createdCanonicalIds.clear();
 });
@@ -113,7 +125,7 @@ describe("recordPlaceSave 동시성", () => {
       lng,
     });
 
-    const naverCanonicalId = await recordPlaceSave({
+    const { canonicalId: naverCanonicalId } = await recordPlaceSave({
       entryId: `test-entry-naver-${randomUUID()}`,
       boardId: `test-board-${randomUUID()}`,
       source: "naver",
@@ -150,7 +162,7 @@ describe("recordPlaceSave 동시성", () => {
       lng,
     });
 
-    const naverCanonicalId = await recordPlaceSave({
+    const { canonicalId: naverCanonicalId } = await recordPlaceSave({
       entryId: `test-entry-naver-${randomUUID()}`,
       boardId: `test-board-${randomUUID()}`,
       source: "naver",

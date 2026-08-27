@@ -21,6 +21,7 @@ function toCollectiblePlace(entry: Entry): CollectiblePlace {
     category: entry.category,
     photos: entry.photos,
     sourceUrl: entry.sourceUrl,
+    canonicalId: entry.canonicalId,
   };
 }
 

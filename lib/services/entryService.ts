@@ -1,7 +1,7 @@
 import { getDb } from "../firebaseAdmin";
 import { LIMITS, SOURCE_META } from "../constants";
 import { ValidationError, OwnershipError, NotFoundError } from "./errors";
-import { recordPlaceSave } from "./canonicalPlaceService";
+import { incrementCollectCount, recordPlaceSave } from "./canonicalPlaceService";
 import type { Board, Entry } from "../types";
 
 const BOARDS_COLLECTION = "boards";
@@ -100,7 +100,7 @@ export async function addEntry(slug: string, input: AddEntryInput): Promise<Entr
   let canonicalId: string | undefined;
   if (board.visibility === "community") {
     try {
-      canonicalId = await recordPlaceSave({
+      ({ canonicalId } = await recordPlaceSave({
         entryId: ref.id,
         boardId: slug,
         source: entry.source,
@@ -111,7 +111,7 @@ export async function addEntry(slug: string, input: AddEntryInput): Promise<Entr
         address: entry.address,
         category: entry.category,
         photos: entry.photos,
-      });
+      }));
       await ref.update({ canonicalId });
     } catch (error) {
       console.error("[entries] canonical place 집계 실패(엔트리 추가 자체는 성공):", error);
@@ -127,8 +127,18 @@ export type CollectResult = { status: "added"; entry: Entry } | { status: "dupli
  *  전에 같은 원본 장소(sourceUrl)가 이미 이 보드에 있는지 확인한다(요구사항 5).
  *  sourceUrl이 없는 장소(수동입력·구글처럼 안정적 원본 ID가 없는 경우)는 중복
  *  판정 자체가 불가능하니 항상 새로 추가한다 - import-list 라우트의 중복 판정과
- *  같은 기준(sourceUrl 문자열 비교)이라 두 기능의 "이미 담김" 판정이 일관된다. */
-export async function collectEntry(slug: string, input: AddEntryInput): Promise<CollectResult> {
+ *  같은 기준(sourceUrl 문자열 비교)이라 두 기능의 "이미 담김" 판정이 일관된다.
+ *
+ *  originCanonicalId가 있으면(§CollectiblePlace.canonicalId) 성공 시 그 장소의
+ *  collectCount를 올린다(§프롬프트 10 "담아간 횟수순") - 담는 보드의 공개설정과
+ *  무관하게 항상 올라가야 하는 카운터라, addEntry가 destination 기준으로 하는
+ *  saveCount 집계와는 완전히 별개 경로다. 부가 기능이라 실패해도 담기 자체는
+ *  이미 끝난 뒤다(fail-open). */
+export async function collectEntry(
+  slug: string,
+  input: AddEntryInput,
+  originCanonicalId?: string
+): Promise<CollectResult> {
   if (input.sourceUrl) {
     const existing = await listEntries(slug);
     if (existing.some((entry) => entry.sourceUrl === input.sourceUrl)) {
@@ -136,6 +146,15 @@ export async function collectEntry(slug: string, input: AddEntryInput): Promise<
     }
   }
   const entry = await addEntry(slug, input);
+
+  if (originCanonicalId) {
+    try {
+      await incrementCollectCount(originCanonicalId);
+    } catch (error) {
+      console.error("[entries] 담아간 횟수 집계 실패(담기 자체는 완료):", error);
+    }
+  }
+
   return { status: "added", entry };
 }
 

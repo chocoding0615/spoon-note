@@ -1,4 +1,4 @@
-import type { PlaceSource, Visibility } from "./types";
+import type { FeedSort, PlaceSource, Visibility } from "./types";
 
 export const SOURCE_META: Record<PlaceSource, { label: string; color: string; textColor: string }> = {
   naver: { label: "네이버지도", color: "#03c75a", textColor: "#ffffff" },
@@ -22,6 +22,9 @@ export const VISIBILITY_VALUES: Visibility[] = VISIBILITY_OPTIONS.map((option) =
 export const DEFAULT_NICKNAME = "익명의 미식가";
 
 export const NICKNAME_STORAGE_KEY = "spoonnote:nickname";
+
+/** 홈 탭 "마지막으로 본 지역" 기억용(§프롬프트 10 RegionPicker) */
+export const LAST_REGION_STORAGE_KEY = "spoonnote:lastRegion";
 
 export const THEMES = ["기본", "여행", "데이트", "혼밥", "회식", "카페투어"] as const;
 
@@ -52,3 +55,25 @@ export const COMMUNITY = {
 export const OWNER_KEY_HEADER = "x-owner-key";
 
 export const OWNER_KEY_STORAGE_PREFIX = "spoonnote:ownerKey:";
+
+/** 커뮤니티 피드 정렬 옵션(§프롬프트 10) - 조회수·좋아요는 트래킹 기능이 아직
+ *  없어서 제외. UI 드롭다운과 API 쿼리 파라미터 검증(FEED_SORT_VALUES) 양쪽에서 재사용. */
+export const FEED_SORT_OPTIONS: { value: FeedSort; label: string }[] = [
+  { value: "latest", label: "최신순" },
+  { value: "popular", label: "인기순" },
+  { value: "distance", label: "거리순" },
+  { value: "collected", label: "담아간 횟수순" },
+];
+
+export const FEED_SORT_VALUES: FeedSort[] = FEED_SORT_OPTIONS.map((option) => option.value);
+
+/** 홈 탭 "이번 주 급상승" 위젯(§프롬프트 10) 설정값 */
+export const TRENDING = {
+  /** 최근 며칠간의 찜 증가량을 볼지 */
+  windowDays: 7,
+  /** 위젯에 보여줄 최대 장소 수 */
+  limit: 5,
+} as const;
+
+/** 홈 탭 지역 랭킹 미리보기(§프롬프트 10)에서 보여줄 최대 장소 수 */
+export const HOME_RANKING_PREVIEW_LIMIT = 5;

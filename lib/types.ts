@@ -22,6 +22,12 @@ export interface Board {
    *  "커뮤니티공개" 전환에는 이 연결이 필수다(boardService.updateBoard 참고). */
   userId?: string;
   createdAt: number;
+  /** "커뮤니티공개"로 (재)전환된 시각. 커뮤니티 피드 "최신순" 정렬 기준(§프롬프트 10)
+   *  - board.createdAt(최초 생성 시각)과는 다르다. 비공개로 만들었다가 나중에
+   *  커뮤니티로 전환하면 그 전환 시점으로 갱신된다(boardService.createBoard/updateBoard).
+   *  이 필드가 생기기 전에 이미 community였던 보드는 값이 없을 수 있어 읽는
+   *  쪽에서 createdAt으로 폴백한다(feedService.listCommunityFeed). */
+  communityAt?: number;
 }
 
 export interface Entry {
@@ -115,6 +121,13 @@ export interface CanonicalPlace {
    *  이 카운트에 반영되도록 호출을 게이팅한다). 정확한 집계는
    *  canonicalPlaces/{id}/boards 서브컬렉션 문서 존재 여부로 트랜잭션 안에서 판정. */
   saveCount: number;
+  /** "담아가기"로 다른 보드에 옮겨진 총 횟수(§프롬프트 10 커뮤니티 피드 "담아간
+   *  횟수순"). saveCount와 다르다 - saveCount는 "몇 개의 커뮤니티공개 보드가
+   *  이 장소를 갖고 있나"(보드 수, 비공개 보드 제외)인 반면 이건 "담아가기 버튼이
+   *  실제로 몇 번 눌렸나"(행위 총량, 담는 보드의 공개설정과 무관)라 완전히 별개
+   *  카운터다. entryService.collectEntry 성공 시에만 증가, 감소 로직은 없다
+   *  (담긴 걸 나중에 지워도 "그때 담아갔다"는 사실 자체는 바뀌지 않으므로). */
+  collectCount: number;
   /** 원본 링크/ID들 - 나중에 잘못 묶인 걸 수동으로 분리할 수 있게 전부 유지 */
   sources: { source: PlaceSource; placeId: string; sourceUrl: string }[];
   createdAt: number;
@@ -136,6 +149,10 @@ export interface PlaceBoardSummary {
   authorName: string;
 }
 
+/** 커뮤니티 피드 정렬 기준(§프롬프트 10). 조회수·좋아요는 트래킹 기능이 아직
+ *  없어서 제외 - 필요하면 이후 별도 작업으로 추가. */
+export type FeedSort = "popular" | "distance" | "latest" | "collected";
+
 /** 커뮤니티 피드(프롬프트 6) 카드 하나. */
 export interface FeedBoardCard {
   slug: string;
@@ -146,7 +163,17 @@ export interface FeedBoardCard {
   coverPhoto: string | null;
   /** canonical place 찜 횟수가 임계값(COMMUNITY.goldThreshold) 이상인 장소 개수 */
   popularCount: number;
+  /** "인기순" 정렬 기준 - 보드에 담긴 장소들의 canonical saveCount 합산(§프롬프트 10) */
+  totalSaveCount: number;
+  /** "담아간 횟수순" 정렬 기준 - 보드에 담긴 장소들의 canonical collectCount 합산 */
+  collectedCount: number;
+  /** 엔트리 좌표 평균(둘 다 있는 엔트리만) - "거리순" 정렬용 보드 대표 좌표.
+   *  좌표를 가진 엔트리가 하나도 없으면 null(거리순 정렬 시 맨 뒤로 밀림). */
+  lat: number | null;
+  lng: number | null;
   createdAt: number;
+  /** 커뮤니티 등록 시각 - "최신순" 정렬 기준(§Board.communityAt) */
+  communityAt: number;
 }
 
 /** 신고된 보드 기록(관리자만 Firestore 콘솔에서 직접 확인 - 별도 admin UI 없음). */
@@ -171,6 +198,11 @@ export interface CollectiblePlace {
   category?: string;
   photos?: string[];
   sourceUrl?: string;
+  /** 이 장소가 연결된 canonicalPlaces 문서 ID(있으면). "담아가기" 성공 시
+   *  이 장소의 collectCount를 올리는 데 쓴다(§entryService.collectEntry) -
+   *  담기는 보드가 어디든(비공개 포함) 항상 증가시켜야 해서, 담는 시점에
+   *  destination 쪽에서 다시 매칭하는 게 아니라 origin 쪽 id를 그대로 실어 보낸다. */
+  canonicalId?: string;
 }
 
 /** canonicalPlaces/{canonicalId}/boards/{boardId} 서브컬렉션 문서.
@@ -181,4 +213,28 @@ export interface CanonicalPlaceBoardLink {
   /** 같은 보드에서 이 장소를 가리키는 엔트리 ID들(보통 1개, 중복 추가 시 여러 개) */
   entryIds: string[];
   addedAt: number;
+}
+
+/** canonicalPlaces/{id}가 새로 커뮤니티 보드에 찜될 때마다(saveCount가 실제로
+ *  늘어나는 순간에만) 하나씩 쌓는 타임스탬프 로그(§프롬프트 10 "이번 주 급상승").
+ *  집계 전용이라 삭제 시 되돌리는 로직은 없다(과거에 찜됐던 사실 자체는 안 바뀜). */
+export interface PlaceSaveEvent {
+  id?: string;
+  canonicalId: string;
+  createdAt: number;
+}
+
+/** 홈 탭 "이번 주 급상승" 위젯 항목 - 최근 N일간 새로 찜된 횟수 기준(§PlaceSaveEvent). */
+export interface TrendingPlace {
+  id: string;
+  placeName: string;
+  region: string | null;
+  recentCount: number;
+}
+
+/** 홈 탭 "현재 위치로 찾기"용 - 지역별 canonical place 좌표 평균(§canonicalPlaceService.listRegionCentroids). */
+export interface RegionCentroid {
+  region: string;
+  lat: number;
+  lng: number;
 }

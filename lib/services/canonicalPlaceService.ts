@@ -10,12 +10,16 @@ import type {
   CanonicalPlaceRanking,
   CollectiblePlace,
   PlaceBoardSummary,
+  PlaceSaveEvent,
   PlaceSource,
+  RegionCentroid,
+  TrendingPlace,
 } from "../types";
 
 const CANONICAL_PLACES_COLLECTION = "canonicalPlaces";
 const BOARD_LINKS_SUBCOLLECTION = "boards";
 const BOARDS_COLLECTION = "boards";
+const SAVE_EVENTS_COLLECTION = "placeSaveEvents";
 
 /** 근사 매칭 후보를 찾기 위해 좌표가 대략 근처인 canonical place를 가져온다.
  *  Firestore에서 위도+경도를 동시에 범위 검색하려면 복합 색인이 필요해서, 위도만
@@ -69,7 +73,9 @@ export interface RecordPlaceSaveInput {
  *  새로운 장소를 두 요청이 동시에 처음 등록하면, 서로를 못 보고 canonical
  *  place가 중복 생성될 수 있다(원본 ID가 있는 소스는 canonicalId 자체가
  *  결정적이라 이 레이스가 없음). 좁은 엣지케이스라 MVP 규모에선 감수한다. */
-export async function recordPlaceSave(input: RecordPlaceSaveInput): Promise<string> {
+export async function recordPlaceSave(
+  input: RecordPlaceSaveInput
+): Promise<{ canonicalId: string; isNewSave: boolean }> {
   const placeId = extractPlaceId(input.source, input.sourceUrl);
   const candidates =
     input.lat !== undefined && input.lng !== undefined ? await findGeoCandidates(input.lat) : [];
@@ -85,6 +91,11 @@ export async function recordPlaceSave(input: RecordPlaceSaveInput): Promise<stri
 
   const canonicalRef = db.collection(CANONICAL_PLACES_COLLECTION).doc(canonicalId);
   const boardLinkRef = canonicalRef.collection(BOARD_LINKS_SUBCOLLECTION).doc(input.boardId);
+
+  // "이번 주 급상승" 집계용 - saveCount가 실제로 늘어나는 순간(아래 else 분기)에만
+  // true가 된다. 같은 보드가 같은 장소를 또 담는 경우(entryIds만 추가)는 신규
+  // 찜이 아니므로 이벤트를 남기지 않는다.
+  let isNewSave = false;
 
   await db.runTransaction(async (tx) => {
     // tx.get()을 Promise.all로 동시에 걸면 Admin SDK 트랜잭션에서 조용히 씹히는
@@ -103,6 +114,7 @@ export async function recordPlaceSave(input: RecordPlaceSaveInput): Promise<stri
         category: input.category,
         photos: input.photos,
         saveCount: 1,
+        collectCount: 0,
         sources: placeId ? [{ source: input.source, placeId, sourceUrl: input.sourceUrl ?? "" }] : [],
         createdAt: now,
         updatedAt: now,
@@ -126,6 +138,7 @@ export async function recordPlaceSave(input: RecordPlaceSaveInput): Promise<stri
         tx.update(boardLinkRef, { entryIds: FieldValue.arrayUnion(input.entryId) });
       }
     } else {
+      isNewSave = true;
       const link: CanonicalPlaceBoardLink = { boardId: input.boardId, entryIds: [input.entryId], addedAt: now };
       tx.set(boardLinkRef, link);
       // 새로 만든 canonical place는 이미 saveCount:1로 생성했으니 추가 증가는 기존 place에만 필요
@@ -135,7 +148,36 @@ export async function recordPlaceSave(input: RecordPlaceSaveInput): Promise<stri
     }
   });
 
-  return canonicalId;
+  if (isNewSave) {
+    // 급상승 집계는 부가 기능이라 실패해도 찜 자체는 이미 끝난 뒤다(fail-open) -
+    // recordSaveEvent 내부에서 자체적으로 에러를 삼킨다.
+    await recordSaveEvent(canonicalId);
+  }
+
+  return { canonicalId, isNewSave };
+}
+
+/** canonicalId가 새로 찜될 때마다 타임스탬프 하나를 남긴다(§PlaceSaveEvent).
+ *  집계 전용 부가 기능이라 실패해도 호출부(recordPlaceSave)의 핵심 동작에
+ *  영향을 주면 안 된다 - 여기서 에러를 삼킨다(fail-open). */
+async function recordSaveEvent(canonicalId: string): Promise<void> {
+  try {
+    const event: PlaceSaveEvent = { canonicalId, createdAt: Date.now() };
+    await getDb().collection(SAVE_EVENTS_COLLECTION).add(event);
+  } catch (error) {
+    console.error("[canonicalPlaces] 급상승 집계용 이벤트 기록 실패:", error);
+  }
+}
+
+/** "담아가기"(프롬프트 8)가 성공했을 때 호출한다 - 담는 보드의 공개설정과
+ *  무관하게 항상 증가시켜야 하는 별개 카운터라(§CanonicalPlace.collectCount)
+ *  saveCount 집계(recordPlaceSave)와는 완전히 분리된 경로다. 부가 기능이라
+ *  실패해도 "장소 담기" 자체는 이미 끝난 뒤다(fail-open, 호출부에서 캐치). */
+export async function incrementCollectCount(canonicalId: string): Promise<void> {
+  await getDb()
+    .collection(CANONICAL_PLACES_COLLECTION)
+    .doc(canonicalId)
+    .update({ collectCount: FieldValue.increment(1), updatedAt: Date.now() });
 }
 
 /** 엔트리가(보통 보드 통째 삭제로) 사라졌을 때 호출한다. 그 엔트리가 이
@@ -188,6 +230,7 @@ export async function getCollectiblePlace(canonicalId: string): Promise<Collecti
     lng: place.lng,
     category: place.category,
     photos: place.photos,
+    canonicalId: place.id,
   };
 }
 
@@ -207,6 +250,25 @@ export async function getSaveCounts(canonicalIds: string[]): Promise<Record<stri
   snaps.forEach((snap) => {
     if (snap.exists) {
       result[snap.id] = (snap.data() as CanonicalPlace).saveCount;
+    }
+  });
+  return result;
+}
+
+/** getSaveCounts와 같은 배치 조회 패턴이되 collectCount 기준(§커뮤니티 피드
+ *  "담아간 횟수순", 프롬프트 10). */
+export async function getCollectCounts(canonicalIds: string[]): Promise<Record<string, number>> {
+  const uniqueIds = Array.from(new Set(canonicalIds));
+  if (uniqueIds.length === 0) return {};
+
+  const db = getDb();
+  const refs = uniqueIds.map((id) => db.collection(CANONICAL_PLACES_COLLECTION).doc(id));
+  const snaps = await db.getAll(...refs);
+
+  const result: Record<string, number> = {};
+  snaps.forEach((snap) => {
+    if (snap.exists) {
+      result[snap.id] = (snap.data() as CanonicalPlace).collectCount ?? 0;
     }
   });
   return result;
@@ -265,4 +327,101 @@ export async function listBoardsForCanonicalPlace(canonicalId: string): Promise<
       const board = snap.data() as Board;
       return { slug: board.slug, title: board.title, authorName: board.nickname || DEFAULT_NICKNAME };
     });
+}
+
+/** 홈 탭 검색창(§프롬프트 10, "장소/카테고리 검색") - Firestore는 전문검색을
+ *  지원하지 않아 필드값 range 쿼리로 흉내낸 "접두어 일치"만 가능하다(예:
+ *  "마라"로 검색하면 "마라탕"은 걸리지만 "동대문마라탕"은 안 걸림 - MVP 수준의
+ *  알려진 한계, 나중에 Algolia/Typesense 같은 외부 검색엔진으로 개선 가능).
+ *  placeName과 category 양쪽에 접두어 매칭을 걸어 합친다("카테고리 검색"은
+ *  별도 필터 UI 없이 이름과 같은 검색창에서 매칭되는 방식으로 지원). 커뮤니티에
+ *  전혀 안 찜된(saveCount 0) 곳은 결과에서 뺀다 - 아직 아무도 안 담은 장소는
+ *  보여줘도 갈 곳(랭킹/피드)이 없다. */
+export async function searchPlaces(query: string, limit: number): Promise<CanonicalPlaceRanking[]> {
+  const q = query.trim();
+  if (!q) return [];
+
+  const db = getDb();
+  const upperBound = `${q}`;
+  const [byName, byCategory] = await Promise.all([
+    db.collection(CANONICAL_PLACES_COLLECTION).where("placeName", ">=", q).where("placeName", "<", upperBound).get(),
+    db.collection(CANONICAL_PLACES_COLLECTION).where("category", ">=", q).where("category", "<", upperBound).get(),
+  ]);
+
+  const byId = new Map<string, CanonicalPlaceRanking>();
+  [...byName.docs, ...byCategory.docs].forEach((doc) => {
+    if (byId.has(doc.id)) return;
+    const data = doc.data() as CanonicalPlace;
+    if (data.saveCount <= 0) return;
+    byId.set(doc.id, { id: doc.id, placeName: data.placeName, region: data.region ?? null, saveCount: data.saveCount });
+  });
+
+  return Array.from(byId.values())
+    .sort((a, b) => b.saveCount - a.saveCount)
+    .slice(0, limit);
+}
+
+/** 홈 탭 "이번 주 급상승"(프롬프트 10)용 - 최근 days일 안에 새로 찜된
+ *  (recordPlaceSave가 isNewSave로 기록한) 이벤트를 canonicalId별로 세어 많이
+ *  늘어난 순으로 상위 limit개를 돌려준다. 단일 필드(createdAt) range 쿼리라
+ *  복합 색인이 필요 없다 - 집계 자체는 메모리에서 처리(이벤트 총량이 많지 않은
+ *  MVP 규모 전제, §listCommunityFeed와 같은 전략). */
+export async function listTrendingPlaces(days: number, limit: number): Promise<TrendingPlace[]> {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const snap = await getDb().collection(SAVE_EVENTS_COLLECTION).where("createdAt", ">=", cutoff).get();
+  if (snap.empty) return [];
+
+  const counts = new Map<string, number>();
+  snap.docs.forEach((doc) => {
+    const event = doc.data() as PlaceSaveEvent;
+    counts.set(event.canonicalId, (counts.get(event.canonicalId) ?? 0) + 1);
+  });
+
+  const topIds = Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([id]) => id);
+  if (topIds.length === 0) return [];
+
+  const db = getDb();
+  const refs = topIds.map((id) => db.collection(CANONICAL_PLACES_COLLECTION).doc(id));
+  const placeSnaps = await db.getAll(...refs);
+
+  return placeSnaps
+    .filter((placeSnap) => placeSnap.exists)
+    .map((placeSnap) => {
+      const data = placeSnap.data() as CanonicalPlace;
+      return {
+        id: placeSnap.id,
+        placeName: data.placeName,
+        region: data.region ?? null,
+        recentCount: counts.get(placeSnap.id) ?? 0,
+      };
+    })
+    .sort((a, b) => b.recentCount - a.recentCount);
+}
+
+/** 홈 탭 "현재 위치로 찾기"(프롬프트 10)용 - 지역마다 좌표를 가진 canonical
+ *  place들의 평균 좌표를 대표 좌표로 써서, 사용자 현재 위치와 가장 가까운
+ *  지역을 클라이언트에서 고를 수 있게 한다. select()로 필요한 필드만 읽는다
+ *  (§listRegionsWithRankings와 같은 이유 - 컬렉션 전체를 다 읽지 않기 위함). */
+export async function listRegionCentroids(): Promise<RegionCentroid[]> {
+  const snap = await getDb().collection(CANONICAL_PLACES_COLLECTION).select("region", "lat", "lng").get();
+
+  const sums = new Map<string, { latSum: number; lngSum: number; count: number }>();
+  snap.docs.forEach((doc) => {
+    const data = doc.data() as Pick<CanonicalPlace, "region" | "lat" | "lng">;
+    if (!data.region || data.lat === undefined || data.lng === undefined) return;
+    const entry = sums.get(data.region) ?? { latSum: 0, lngSum: 0, count: 0 };
+    entry.latSum += data.lat;
+    entry.lngSum += data.lng;
+    entry.count += 1;
+    sums.set(data.region, entry);
+  });
+
+  return Array.from(sums.entries()).map(([region, { latSum, lngSum, count }]) => ({
+    region,
+    lat: latSum / count,
+    lng: lngSum / count,
+  }));
 }

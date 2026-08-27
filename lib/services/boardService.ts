@@ -47,6 +47,7 @@ export async function createBoard(input: CreateBoardInput, session?: SessionUser
     ownerKey: randomUUID(),
     userId: input.visibility === "community" && session ? session.uid : undefined,
     createdAt: Date.now(),
+    communityAt: input.visibility === "community" ? Date.now() : undefined,
   };
 
   await db.collection(BOARDS_COLLECTION).doc(slug).set(board);
@@ -112,7 +113,7 @@ async function syncCanonicalCountsOnVisibilityChange(
         const entry = doc.data() as Entry;
         if (entry.canonicalId) return;
         try {
-          const canonicalId = await recordPlaceSave({
+          const { canonicalId } = await recordPlaceSave({
             entryId: doc.id,
             boardId: slug,
             source: entry.source,
@@ -186,6 +187,9 @@ export async function updateBoard(
   // 커뮤니티공개로 바뀌는 시점에 로그인돼 있었다는 뜻이니, 이 기회에 계정과
   // 연결해둔다(전환 계기가 곧 로그인 계기라 자연스럽다 - §설계안 03).
   if (goingCommunity && session) update.userId = session.uid;
+  // 커뮤니티 피드 "최신순"은 이 시각 기준이라(§Board.communityAt), 전환될
+  // 때마다 다시 지금 시각으로 찍는다(재전환 시 갱신되는 게 의도된 동작).
+  if (goingCommunity) update.communityAt = Date.now();
 
   await ref.update(update);
 

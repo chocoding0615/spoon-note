@@ -50,16 +50,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const data = (body ?? {}) as Record<string, unknown>;
 
   try {
-    const result = await collectEntry(slug, {
-      source: (typeof data.source === "string" ? data.source : "manual") as PlaceSource,
-      placeName: typeof data.placeName === "string" ? data.placeName : "",
-      address: typeof data.address === "string" ? data.address : undefined,
-      lat: typeof data.lat === "number" ? data.lat : undefined,
-      lng: typeof data.lng === "number" ? data.lng : undefined,
-      category: typeof data.category === "string" ? data.category : undefined,
-      photos: Array.isArray(data.photos) ? data.photos.filter((p): p is string => typeof p === "string") : undefined,
-      sourceUrl: typeof data.sourceUrl === "string" ? data.sourceUrl : undefined,
-    });
+    const result = await collectEntry(
+      slug,
+      {
+        source: (typeof data.source === "string" ? data.source : "manual") as PlaceSource,
+        placeName: typeof data.placeName === "string" ? data.placeName : "",
+        address: typeof data.address === "string" ? data.address : undefined,
+        lat: typeof data.lat === "number" ? data.lat : undefined,
+        lng: typeof data.lng === "number" ? data.lng : undefined,
+        category: typeof data.category === "string" ? data.category : undefined,
+        photos: Array.isArray(data.photos)
+          ? data.photos.filter((p): p is string => typeof p === "string")
+          : undefined,
+        sourceUrl: typeof data.sourceUrl === "string" ? data.sourceUrl : undefined,
+      },
+      typeof data.canonicalId === "string" ? data.canonicalId : undefined
+    );
 
     if (result.status === "duplicate") {
       return NextResponse.json({ status: "duplicate" });

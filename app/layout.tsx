@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { BottomTabBar } from "@/components/nav/BottomTabBar";
+import { getSession } from "@/lib/session";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,13 +33,20 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // 하단 탭바(§프롬프트 10)의 마이페이지 아이콘에 로그인 상태를 반영하려고 세션을
+  // 루트 레이아웃에서 한 번만 읽는다 - 페이지마다 각자 getSession()을 부르지 않게.
+  const session = await getSession();
+
   return (
     <html
       lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-stone-50 text-stone-900">{children}</body>
+      <body className="min-h-full flex flex-col bg-stone-50 text-stone-900 pb-16">
+        {children}
+        <BottomTabBar loggedIn={Boolean(session)} profileImageUrl={session?.profileImageUrl ?? null} />
+      </body>
     </html>
   );
 }
