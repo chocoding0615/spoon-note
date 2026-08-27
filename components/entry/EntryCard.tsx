@@ -8,10 +8,13 @@ interface EntryCardProps {
   entry: Entry;
   /** 이 장소의 커뮤니티 찜 횟수. 0이거나 매칭 데이터가 없으면 뱃지를 안 보여준다. */
   saveCount?: number;
+  /** 주어질 때만 "담아가기" 버튼을 보여준다 - 부모(BoardDetailClient)가 보드가
+   *  "커뮤니티공개"일 때만 이 prop을 넘긴다(프롬프트 8). */
+  onCollect?: () => void;
   dragHandleProps?: HTMLAttributes<HTMLButtonElement>;
 }
 
-export function EntryCard({ entry, saveCount = 0, dragHandleProps }: EntryCardProps) {
+export function EntryCard({ entry, saveCount = 0, onCollect, dragHandleProps }: EntryCardProps) {
   const gold = saveCount >= COMMUNITY.goldThreshold;
   return (
     <div
@@ -44,18 +47,29 @@ export function EntryCard({ entry, saveCount = 0, dragHandleProps }: EntryCardPr
         </div>
         {entry.address && <p className="mt-0.5 text-sm text-stone-500">{entry.address}</p>}
         {entry.memo && <p className="mt-2 text-sm text-stone-700">{entry.memo}</p>}
-        <div className="mt-2 flex items-center justify-between">
+        <div className="mt-2 flex items-center justify-between gap-2">
           {entry.stars ? <StarRating value={entry.stars} readOnly /> : <span />}
-          {entry.sourceUrl && (
-            <a
-              href={entry.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-stone-400 underline hover:text-stone-600"
-            >
-              원본 링크
-            </a>
-          )}
+          <div className="flex items-center gap-3">
+            {onCollect && (
+              <button
+                type="button"
+                onClick={onCollect}
+                className="text-xs font-medium text-accent hover:underline"
+              >
+                담아가기
+              </button>
+            )}
+            {entry.sourceUrl && (
+              <a
+                href={entry.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-stone-400 underline hover:text-stone-600"
+              >
+                원본 링크
+              </a>
+            )}
+          </div>
         </div>
       </div>
     </div>

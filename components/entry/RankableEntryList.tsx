@@ -17,6 +17,9 @@ interface RankableEntryListProps {
   onReorder: (next: Entry[]) => void;
   /** 저장 버튼 클릭 - 부모가 PATCH하고 저장 완료 상태를 갱신한다. */
   onSaveOrder: () => Promise<void>;
+  /** 주어질 때만 각 엔트리에 "담아가기" 버튼을 보여준다(프롬프트 8 - 커뮤니티공개
+   *  보드에서만 부모가 이 prop을 넘김). */
+  onCollect?: (entry: Entry) => void;
 }
 
 // 드래그 라이브러리는 번들이 가벼운 쪽을 우선한다는 원칙에 따라, 별도 패키지 없이
@@ -33,6 +36,7 @@ export function RankableEntryList({
   saveCounts,
   onReorder,
   onSaveOrder,
+  onCollect,
 }: RankableEntryListProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -113,6 +117,7 @@ export function RankableEntryList({
           <EntryCard
             entry={entry}
             saveCount={entry.canonicalId ? (saveCounts[entry.canonicalId] ?? 0) : 0}
+            onCollect={onCollect ? () => onCollect(entry) : undefined}
             dragHandleProps={dragEnabled ? {} : undefined}
           />
         </div>

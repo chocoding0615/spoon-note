@@ -6,9 +6,23 @@ import { BoardHeader } from "./BoardHeader";
 import { MapViewLoader } from "./MapViewLoader";
 import { RankableEntryList } from "@/components/entry/RankableEntryList";
 import { AddEntryDialog, type AddEntryInput } from "@/components/entry/AddEntryDialog";
+import { CollectModal } from "@/components/collect/CollectModal";
 import { Button } from "@/components/ui/Button";
 import { OWNER_KEY_HEADER } from "@/lib/constants";
-import type { Board, Entry } from "@/lib/types";
+import type { Board, CollectiblePlace, Entry } from "@/lib/types";
+
+function toCollectiblePlace(entry: Entry): CollectiblePlace {
+  return {
+    source: entry.source,
+    placeName: entry.placeName,
+    address: entry.address,
+    lat: entry.lat,
+    lng: entry.lng,
+    category: entry.category,
+    photos: entry.photos,
+    sourceUrl: entry.sourceUrl,
+  };
+}
 
 type ViewMode = "list" | "map";
 
@@ -38,6 +52,7 @@ export function BoardDetailClient({
   // 마지막으로 서버에 저장된 순서 - dirty 판정 기준(순서 저장 버튼 노출 여부)
   const [savedOrderIds, setSavedOrderIds] = useState(initialEntries.map((entry) => entry.id));
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [collectPlace, setCollectPlace] = useState<CollectiblePlace | null>(null);
   const dirty = JSON.stringify(entries.map((entry) => entry.id)) !== JSON.stringify(savedOrderIds);
 
   function handleViewChange(next: ViewMode) {
@@ -127,6 +142,7 @@ export function BoardDetailClient({
           saveCounts={saveCounts}
           onReorder={setEntries}
           onSaveOrder={handleSaveOrder}
+          onCollect={board.visibility === "community" ? (entry) => setCollectPlace(toCollectiblePlace(entry)) : undefined}
         />
       )}
 
@@ -138,6 +154,8 @@ export function BoardDetailClient({
         ownerKey={ownerKey}
         onAddMany={handleAddManyEntries}
       />
+
+      {collectPlace && <CollectModal place={collectPlace} onClose={() => setCollectPlace(null)} />}
     </main>
   );
 }

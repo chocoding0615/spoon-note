@@ -193,6 +193,64 @@ canonicalId 제거되고 saveCount 원복)까지 전부 재현 확인. 테스트
 보드/canonical place/신고 기록 전부 정리 완료. `npm run build`,
 `npm run lint`, `npx vitest run`(36개 전부 통과) 확인 완료.
 
+## 프롬프트 8 — "담아가기" 기능 (내 보드로 가져오기)
+
+커뮤니티 피드/지역 랭킹에서 본 장소를 로그인 없이(ownerKey 로컬저장 모델 그대로)
+내 보드로 옮길 수 있는 기능. 핵심은 "기존 장소 추가 로직 재사용"(요구사항 3) -
+새 파이프라인을 만들지 않고 entryService.addEntry를 그대로 감싸는 방식으로 구현:
+
+- **CanonicalPlace에 address/category/photos 스냅샷 추가** - 지역 랭킹 페이지의
+  랭킹 항목은 이름/카운트만 들고 있어서, "담아가기"에 필요한 나머지 정보(주소/
+  좌표/사진/카테고리/원본 링크)를 얻으려면 canonical place 자체가 가지고
+  있어야 함. `recordPlaceSave`가 최초 등록 시점에 한 번만 저장(region과 동일한
+  원칙 - 장소는 안 움직이니 이후 엔트리가 바뀌어도 갱신 안 함)
+- `entryService.collectEntry(slug, input)` - addEntry 호출 전에 sourceUrl
+  문자열 비교로 중복을 먼저 확인(import-list 라우트의 중복 판정과 동일 기준) -
+  중복이면 `{status:"duplicate"}`, 아니면 addEntry 그대로 호출해서
+  `{status:"added", entry}`. sourceUrl이 없는 장소(수동입력 등)는 판정 불가라
+  항상 새로 추가
+- `POST /api/boards/[slug]/collect` - 기존 entries POST 라우트와 거의 동일한
+  모양이지만 collectEntry를 호출. rate limit은 addEntry 규칙 재사용
+- `GET /api/canonical-places/[id]` - 랭킹 페이지 경로 전용, canonical place를
+  CollectiblePlace 모양으로 변환해서 반환(source/sourceUrl은 sources[0] 대표값)
+- `CollectModal.tsx` - 로컬에 저장된 "내 보드"(useOwnedBoards) 중 선택 또는
+  "새 보드 만들기"(제목만 입력, visibility 기본값 unlisted) - 새 보드는
+  `saveOwnerKey`로 즉시 로컬에 등록해서 "내 보드"에도 바로 나타남
+- 버튼 배치: 보드 상세 화면은 board.visibility === "community"일 때만 각
+  엔트리 카드에 노출(EntryCard -> RankableEntryList -> BoardDetailClient로
+  onCollect prop 전달), 지역 랭킹은 각 항목 행에 항상 노출(랭킹 자체가 이미
+  커뮤니티 데이터만 모아놓은 거라 별도 조건 불필요)
+- **요구사항 4 확인**: "담아간 장소도 자동으로 찜 카운트에 포함되는지" - addEntry를
+  그대로 재사용하는 구조라 프롬프트 7에서 만든 게이팅(커뮤니티공개 보드만
+  집계)이 자연스럽게 그대로 적용됨. 즉 담아간 목적지 보드가 "커뮤니티공개"면
+  카운트가 올라가고, "새 보드 만들기"(기본값 링크공유)로 담으면 안 올라감 -
+  이건 버그가 아니라 프롬프트 7의 규칙이 일관되게 적용된 것(실제 E2E 테스트로
+  두 케이스 다 확인함)
+
+**전체 E2E 테스트(프롬프트 8 마지막 요구사항)**: 이 세션엔 브라우저 자동화 도구가
+없어서 실제 화면 클릭 대신 로컬 dev 서버에 직접 API 호출을 순서대로 실행해서
+동일한 흐름을 검증함(보드 만들기 → 커뮤니티공개 → 장소 추가 → 피드/랭킹에서
+확인 → 다른 보드로 담아가기 → 중복 담기 방지 → 새 보드로 담아가기):
+1. 커뮤니티공개 보드 생성 + 장소 추가(마포구) → canonicalId 정상 부여 확인
+2. `/community` 피드에 지역(마포구)/작성자 닉네임 정상 노출, 비공개 보드는 안 보임(기존 확인 재검증)
+3. `/rankings?region=마포구`에 해당 장소와 "담아가기" 버튼 노출 확인
+4. 랭킹 경로로 장소 상세 조회(`GET /api/canonical-places/[id]`) → 주소/좌표/
+   사진/카테고리까지 전부 정확히 복원되는 것 확인
+5. 다른 커뮤니티 보드로 담기 → 같은 canonicalId로 매칭, saveCount 1→2 상승 확인
+6. 같은 보드에 같은 장소 재담기 시도 → `{status:"duplicate"}` 정상 응답
+7. "새 보드 만들기" 플로우(생성 + 즉시 담기) → 성공하지만 새 보드가 기본
+   링크공유라 saveCount는 그대로(2) 유지되는 것까지 확인(요구사항 4의 정확한
+   동작 재확인)
+8. 테스트로 만든 보드 3개 + canonical place 1개 전부 정리, 최종 saveCount 0 확인
+
+`npm run build`, `npm run lint`, `npx vitest run`(36개) 전부 통과.
+
+**결론**: 프롬프트 3~8로 이어진 커뮤니티 기능(엔티티 매칭·카운트 집계 → 3단계
+공개설정 → 보드 상세 랭킹 반영 → 커뮤니티 피드 → 지역 랭킹 → 담아가기)이
+end-to-end로 정상 동작함을 확인. 중간에 프롬프트 7 작업 때 "비공개/링크공유
+보드도 카운트에 반영되던" 버그를 발견해 수정했고, 이 수정이 프롬프트 8의
+담아가기 기능과도 자연스럽게 맞물려 동작하는 것까지 검증 완료.
+
 ## 다른 PC(사무실 등)에서 이어서 작업할 때 체크리스트
 - `git pull`(또는 처음이면 `gh repo clone chocoding0615/spoon-note`)로 코드는 받아짐
 - **`.env.local`은 git에 안 올라감**(`.gitignore`) - Firebase 서비스 계정 키

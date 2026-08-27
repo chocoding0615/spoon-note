@@ -109,6 +109,8 @@ export async function addEntry(slug: string, input: AddEntryInput): Promise<Entr
         lat: entry.lat,
         lng: entry.lng,
         address: entry.address,
+        category: entry.category,
+        photos: entry.photos,
       });
       await ref.update({ canonicalId });
     } catch (error) {
@@ -117,6 +119,24 @@ export async function addEntry(slug: string, input: AddEntryInput): Promise<Entr
   }
 
   return { id: ref.id, ...entry, canonicalId };
+}
+
+export type CollectResult = { status: "added"; entry: Entry } | { status: "duplicate" };
+
+/** "담아가기"(프롬프트 8) 전용 - addEntry를 그대로 재사용하되(요구사항 3), 그
+ *  전에 같은 원본 장소(sourceUrl)가 이미 이 보드에 있는지 확인한다(요구사항 5).
+ *  sourceUrl이 없는 장소(수동입력·구글처럼 안정적 원본 ID가 없는 경우)는 중복
+ *  판정 자체가 불가능하니 항상 새로 추가한다 - import-list 라우트의 중복 판정과
+ *  같은 기준(sourceUrl 문자열 비교)이라 두 기능의 "이미 담김" 판정이 일관된다. */
+export async function collectEntry(slug: string, input: AddEntryInput): Promise<CollectResult> {
+  if (input.sourceUrl) {
+    const existing = await listEntries(slug);
+    if (existing.some((entry) => entry.sourceUrl === input.sourceUrl)) {
+      return { status: "duplicate" };
+    }
+  }
+  const entry = await addEntry(slug, input);
+  return { status: "added", entry };
 }
 
 export async function reorderEntries(slug: string, ownerKey: string, orderedIds: string[]): Promise<void> {

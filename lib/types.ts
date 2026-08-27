@@ -99,6 +99,12 @@ export interface CanonicalPlace {
    *  이동할 일은 없다고 보고 생성 시 한 번만 정하고 이후엔 갱신하지 않는다.
    *  주소가 없거나 지역을 못 뽑으면 null. */
   region?: string | null;
+  /** "담아가기"(프롬프트 8)로 다른 보드에 옮길 때 쓸 스냅샷 - 최초 등록 엔트리
+   *  기준으로 한 번만 저장하고 이후 갱신하지 않는다(주소가 바뀌어도 이 장소를
+   *  최초로 커뮤니티에 등록한 시점 정보 그대로 - MVP 수준에선 충분). */
+  address?: string;
+  category?: string;
+  photos?: string[];
   /** 이 장소를 담은 서로 다른 "커뮤니티공개" 보드 수 - 엔트리 수가 아니라 보드 수(한 보드가
    *  같은 장소를 두 번 담아도 1로만 집계). 비공개/링크공유 보드는 집계에서 제외된다
    *  (entryService.addEntry/boardService.updateBoard가 visibility가 "community"일 때만
@@ -145,6 +151,22 @@ export interface BoardReport {
   boardSlug: string;
   boardTitle: string;
   createdAt: number;
+}
+
+/** "담아가기"(프롬프트 8)로 다른 보드에 옮길 수 있는 장소 하나 - AddEntryInput과
+ *  같은 모양이라 기존 "장소를 보드에 추가" 로직(entryService.addEntry)을 그대로
+ *  재사용할 수 있다. 보드 상세 화면에서는 Entry를 그대로 이 모양으로 변환해서
+ *  쓰고, 지역 랭킹 페이지에서는 canonicalPlaceService.getCollectiblePlace로
+ *  서버에서 조회해서 쓴다(랭킹 목록엔 이름/카운트만 있어서 부족함). */
+export interface CollectiblePlace {
+  source: PlaceSource;
+  placeName: string;
+  address?: string;
+  lat?: number;
+  lng?: number;
+  category?: string;
+  photos?: string[];
+  sourceUrl?: string;
 }
 
 /** canonicalPlaces/{canonicalId}/boards/{boardId} 서브컬렉션 문서.

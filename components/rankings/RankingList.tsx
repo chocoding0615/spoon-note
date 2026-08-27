@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { CanonicalPlaceRanking, PlaceBoardSummary } from "@/lib/types";
+import { CollectModal } from "@/components/collect/CollectModal";
+import type { CanonicalPlaceRanking, CollectiblePlace, PlaceBoardSummary } from "@/lib/types";
 
 interface RankingListProps {
   places: CanonicalPlaceRanking[];
@@ -15,6 +16,23 @@ const MEDALS = ["🥇", "🥈", "🥉"] as const;
 export function RankingList({ places }: RankingListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [boardsById, setBoardsById] = useState<Record<string, PlaceBoardSummary[] | "loading" | "error">>({});
+  // "담아가기"(프롬프트 8) - 랭킹 목록엔 이름/카운트만 있어서 버튼 클릭 시점에
+  // 전체 장소 정보를 지연 조회한다(§api/canonical-places/[id]).
+  const [collectPlace, setCollectPlace] = useState<CollectiblePlace | null>(null);
+  const [collectLoadingId, setCollectLoadingId] = useState<string | null>(null);
+
+  async function handleCollectClick(id: string) {
+    if (collectLoadingId) return;
+    setCollectLoadingId(id);
+    try {
+      const res = await fetch(`/api/canonical-places/${id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.place) setCollectPlace(data.place);
+    } finally {
+      setCollectLoadingId(null);
+    }
+  }
 
   async function handleToggle(id: string) {
     if (expandedId === id) {
@@ -53,15 +71,25 @@ export function RankingList({ places }: RankingListProps) {
 
         return (
           <div key={place.id} className="rounded-2xl border border-stone-200 bg-white">
-            <button
-              type="button"
-              onClick={() => handleToggle(place.id)}
-              className="flex w-full items-center gap-3 p-4 text-left"
-            >
-              <span className="w-8 shrink-0 text-center text-lg">{medal ?? rank}</span>
-              <span className="flex-1 font-medium text-stone-900">{place.placeName}</span>
-              <span className="shrink-0 text-sm text-stone-500">🔥 {place.saveCount}곳</span>
-            </button>
+            <div className="flex w-full items-center gap-2 p-4">
+              <button
+                type="button"
+                onClick={() => handleToggle(place.id)}
+                className="flex flex-1 items-center gap-3 text-left"
+              >
+                <span className="w-8 shrink-0 text-center text-lg">{medal ?? rank}</span>
+                <span className="flex-1 font-medium text-stone-900">{place.placeName}</span>
+                <span className="shrink-0 text-sm text-stone-500">🔥 {place.saveCount}곳</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCollectClick(place.id)}
+                disabled={collectLoadingId === place.id}
+                className="shrink-0 whitespace-nowrap text-xs font-medium text-accent hover:underline disabled:opacity-60"
+              >
+                {collectLoadingId === place.id ? "불러오는 중..." : "담아가기"}
+              </button>
+            </div>
             {expanded && (
               <div className="border-t border-stone-100 px-4 py-3">
                 {boards === "loading" && <p className="text-sm text-stone-400">불러오는 중...</p>}
@@ -85,6 +113,7 @@ export function RankingList({ places }: RankingListProps) {
           </div>
         );
       })}
+      {collectPlace && <CollectModal place={collectPlace} onClose={() => setCollectPlace(null)} />}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import type {
   CanonicalPlace,
   CanonicalPlaceBoardLink,
   CanonicalPlaceRanking,
+  CollectiblePlace,
   PlaceBoardSummary,
   PlaceSource,
 } from "../types";
@@ -50,9 +51,11 @@ export interface RecordPlaceSaveInput {
   sourceUrl?: string;
   lat?: number;
   lng?: number;
-  /** 최초 등록 시 region 계산에만 쓴다(§CanonicalPlace.region) - 이미 있는
-   *  canonical place에 매칭되면 무시됨(장소 지역은 최초 등록 시 고정). */
+  /** 최초 등록 시 region 계산 + "담아가기" 스냅샷(§CanonicalPlace.address/category/photos)에
+   *  쓴다 - 이미 있는 canonical place에 매칭되면 전부 무시됨(최초 등록 시점에 고정). */
   address?: string;
+  category?: string;
+  photos?: string[];
 }
 
 /** 장소가 보드에 추가됐을 때 호출한다. 매칭되는 canonical place를 찾아
@@ -96,6 +99,9 @@ export async function recordPlaceSave(input: RecordPlaceSaveInput): Promise<stri
         lat: input.lat,
         lng: input.lng,
         region: extractRegion(input.address),
+        address: input.address,
+        category: input.category,
+        photos: input.photos,
         saveCount: 1,
         sources: placeId ? [{ source: input.source, placeId, sourceUrl: input.sourceUrl ?? "" }] : [],
         createdAt: now,
@@ -161,6 +167,28 @@ export async function getCanonicalPlace(canonicalId: string): Promise<CanonicalP
   const snap = await getDb().collection(CANONICAL_PLACES_COLLECTION).doc(canonicalId).get();
   if (!snap.exists) return null;
   return { id: snap.id, ...snap.data() } as CanonicalPlace;
+}
+
+/** 지역 랭킹 페이지의 "담아가기"(프롬프트 8)용 - 랭킹 목록엔 이름/카운트만 있어서
+ *  실제로 보드에 추가하려면 이 조회가 한 번 더 필요하다. source/sourceUrl은
+ *  최초 등록 소스(sources[0])를 대표값으로 쓴다 - 원본 ID가 없는 소스(구글/manual)로
+ *  등록됐다면 sources가 비어있을 수 있는데, 이땐 "manual"로 담아가는 것과
+ *  동일하게 취급한다(원본 링크 자체가 없으니 자연스러운 처리). */
+export async function getCollectiblePlace(canonicalId: string): Promise<CollectiblePlace | null> {
+  const place = await getCanonicalPlace(canonicalId);
+  if (!place) return null;
+
+  const primarySource = place.sources[0];
+  return {
+    source: primarySource?.source ?? "manual",
+    sourceUrl: primarySource?.sourceUrl || undefined,
+    placeName: place.placeName,
+    address: place.address,
+    lat: place.lat,
+    lng: place.lng,
+    category: place.category,
+    photos: place.photos,
+  };
 }
 
 /** 보드 상세 화면에 찜 횟수 뱃지를 그리기 위해, 엔트리들이 가진 canonicalId

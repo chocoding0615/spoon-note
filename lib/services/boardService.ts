@@ -115,6 +115,8 @@ async function syncCanonicalCountsOnVisibilityChange(
             lat: entry.lat,
             lng: entry.lng,
             address: entry.address,
+            category: entry.category,
+            photos: entry.photos,
           });
           await doc.ref.update({ canonicalId });
         } catch (error) {
