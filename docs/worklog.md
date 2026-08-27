@@ -91,6 +91,55 @@ SDK 없이 서버만으로 끝내는 쪽으로 바꿈:
 
 `npm run build`, `npm run lint`, `npx vitest run`(39개) 통과.
 
+## 프롬프트 9 — 이메일 인증 프로덕션 500 (firebase-admin/auth ESM 문제)
+
+5단계(이메일 회원가입) 배포 직후 `POST /api/auth/email/signup`,
+`POST /api/auth/email/login`이 **프로덕션에서만** 완전히 빈 응답 본문으로
+500이 나는 걸 발견. 로컬 `next dev`/`next build`+`next start` 둘 다 전혀
+재현 안 돼서 진단이 오래 걸림 - 시도 순서와 각각 왜 틀렸는지 기록:
+
+1. `next.config.ts`에 `serverExternalPackages: ["firebase-admin"]` 추가 →
+   효과 없음. 이유: `firebase-admin`은 Next.js가 **기본으로 이미** external
+   처리하는 패키지 목록에 있었음(`node_modules/next/dist/lib/server-external-packages.jsonc`
+   확인) - 애초에 번들링 문제가 아니었음
+2. `package.json`에 `engines.node: "22.x"` 추가 → 효과 없음. Node
+   22.12+부터 `require()`로 ESM을 불러오는 게 정식 지원된다길래 로컬(Node 24)만
+   재현 안 되는 이유로 의심했지만, 실제 배포 Node 버전을 직접 확인해보니
+   이미 v22.23.1이었음(아래 3번 진단 라우트로 확인) - 버전 문제가 아니었음
+3. 임시 진단 라우트(`/api/debug/runtime`, 확인 후 삭제)로 실제 에러 원문을
+   직접 받아봄 - `d.png`(사용자가 Vercel Runtime Logs 스크린샷 공유) +
+   이 라우트 둘 다에서 정확한 원인 확인:
+   `Error [ERR_REQUIRE_ESM]: require() of ES Module .../jose/dist/webapi/index.js
+   from .../jwks-rsa/src/utils.js not supported`
+   → **진짜 원인**: `firebase-admin/auth`가 내부적으로 `jwks-rsa`를 쓰고,
+   `jwks-rsa`가 `jose@^6`(ESM 전용, CJS 빌드 없음)를 `require()`로 불러오려
+   해서 터짐. Next.js가 firebase-admin을 자기 방식대로 external
+   require()하는 경로에서만 발생 - 로컬 `next dev`/`next start`는 이 특정
+   external-module 로더 경로를 안 타서 재현이 안 됐던 것으로 보임
+
+**실제 수정**: `lib/firebaseAuth.ts`의 `createEmailUser`가 쓰던
+`firebase-admin`의 `getAuth().createUser()`를 제거하고, 로그인
+(`verifyEmailCredentials`)이 이미 쓰고 있던 것과 동일한 Identity Toolkit
+REST(`accounts:signUp`)로 교체 - `firebase-admin/auth` import 자체를 파일에서
+완전히 없앴다(이 파일을 쓰는 두 라우트가 전부 이 import 하나 때문에 모듈
+로드 시점에 죽고 있었음). 이제 이메일 인증은 회원가입/로그인 둘 다
+firebase-admin 없이 REST만으로 동작 - `getDb()`(Firestore)는 여전히
+`lib/session.ts`에서 정상적으로 사용 중(이건 firebase-admin/firestore라 이
+문제와 무관).
+
+프로덕션에서 재검증: 잘못된 입력에 대해 두 라우트 다 빈 응답 500 대신 정상
+JSON 400 응답 확인. `FIREBASE_WEB_API_KEY`가 아직 로컬/프로덕션 둘 다
+설정 안 돼있어서 실제 회원가입 성공까지는 못 갔지만(정상적인 "설정 미완료"
+500 - 이건 버그가 아니라 위 "잔여" 섹션의 콘솔 설정이 필요한 부분), 이번에
+고친 크래시 자체는 완전히 해결됨. `npm run build`, `npm run lint`,
+`npx vitest run`(39개) 통과.
+
+**교훈**: 프로덕션에서만 재현되고 로컬 dev/prod 모드 둘 다 재현 안 되는
+버그는, Next.js가 특정 패키지를 "external"로 처리해 자체 런타임 로더로
+require()하는 경로 자체가 로컬 실행 방식과 다를 수 있다는 걸 의심할 것 -
+번들링/Node버전 추측으로 시간 쓰기 전에 Vercel Runtime Logs(또는 임시
+진단 라우트로 실제 에러 원문)부터 먼저 확보하는 게 훨씬 빠름.
+
 ## 다음에 이어서 할 만한 것 - 프롬프트 9 잔여 (콘솔 설정 필요)
 - **Firebase**: 콘솔 > Authentication > 시작하기로 최초 활성화 + "이메일/비밀번호"
   제공업체 켜기, 프로젝트 설정 > 일반에서 "웹 API 키" 복사해 `FIREBASE_WEB_API_KEY`로 설정
