@@ -1,14 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getViewableBoard, updateBoard, deleteBoard } from "@/lib/services/boardService";
 import { OwnershipError, ValidationError } from "@/lib/services/errors";
-import { OWNER_KEY_HEADER } from "@/lib/constants";
+import { OWNER_KEY_HEADER, VISIBILITY_VALUES } from "@/lib/constants";
 import type { Visibility } from "@/lib/types";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
 }
-
-const VISIBILITY_VALUES: Visibility[] = ["public", "unlisted", "private"];
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const { slug } = await params;
@@ -46,6 +44,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       visibility: VISIBILITY_VALUES.includes(data.visibility as Visibility)
         ? (data.visibility as Visibility)
         : undefined,
+      nickname: typeof data.nickname === "string" ? data.nickname : undefined,
     });
     if (!board) return NextResponse.json({ error: "보드를 찾을 수 없어요." }, { status: 404 });
     return NextResponse.json({ board });

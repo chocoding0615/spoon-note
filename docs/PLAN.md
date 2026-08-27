@@ -290,3 +290,44 @@ saveCount 0으로 감소까지 실제 API로 재현 확인. 테스트로 만든 
 
 **다음 단계(미착수)**: UI에서 saveCount/goldThreshold 노출(예: EntryCard에
 "인기 장소" 배지), canonical place 조회 API 라우트.
+
+### 2026-08-27 — 공개설정 3단계 재구성(비공개/링크공유/커뮤니티공개) + 닉네임
+
+**중요 - 지시서와 실제 코드 상태가 달랐음**: 지시서는 "지금은 공개/비공개
+2단계"라고 했지만, 실제 `Visibility` 타입은 이미 `public/unlisted/private`
+3단계였음(다만 `public`과 `unlisted`가 기능적으로 완전히 동일 - 커뮤니티 노출
+기능 자체가 없어서 "전체공개"라는 라벨만 다르고 접근 제어는 같았음). 그래서
+"2→3단계 마이그레이션"이 아니라, **예전 `public`을 폐기하고 `community`를
+새로 만든 다음, 기존 `public` 문서를 `unlisted`로 옮기는** 작업으로 진행함
+(지시서 요구사항 1의 "기존 '공개'였던 보드는 '링크공유'로" 매핑과 결과적으로
+동일 - 커뮤니티에 자동 노출되면 안 된다는 요구사항도 그대로 충족).
+
+- `lib/types.ts` — `Visibility = "private" | "unlisted" | "community"`,
+  `Board.nickname?: string` 추가
+- `lib/constants.ts` — `VISIBILITY_OPTIONS` 3단계 재정의(비공개/링크공유/
+  커뮤니티공개), `VISIBILITY_VALUES`(옵션에서 값만 뽑은 배열 - 코드리뷰에서
+  지적됐던 "라우트마다 하드코딩된 검증 배열" 문제를 이 참에 같이 해결),
+  `DEFAULT_NICKNAME`("익명의 미식가"), `LIMITS.nicknameMaxLength`(20)
+- `lib/services/boardService.ts` — `createBoard`/`updateBoard`가 `nickname`
+  받아서 트림/길이제한 후 저장. **`migratePublicVisibility()`** 추가 -
+  `visibility=="public"`인 문서를 찾아 `unlisted`로 일괄 변경(멱등적, 여러 번
+  실행해도 안전). 실행해보니 실제 운영 데이터엔 그런 문서가 0개였음(아직
+  출시 전이라 당연함) - 그래도 나중에 실사용자 데이터가 생기기 전에 코드를
+  마련해두는 게 맞다고 판단해서 구현
+- `lib/utils/nickname.ts` — 닉네임 localStorage 저장/조회. 계정 개념이 없는
+  앱이라 "재사용"의 실체는 이 값뿐 - 서버(`Board.nickname`)엔 그 보드를 만든
+  시점의 스냅샷만 남고, 다음 보드 만들 때 입력창을 미리 채우는 용도로만 씀
+- `components/board/VisibilitySelector.tsx` — "커뮤니티공개" 선택 시에만
+  닉네임 입력창을 인라인으로 보여줌(선택 입력, 비워두면 기본 표시명)
+- `app/boards/new/page.tsx` — 닉네임 state를 `getNickname()`으로 미리 채우고,
+  제출 성공 시 `saveNickname()`으로 갱신. 보드 수정(PATCH) UI는 아직 없어서
+  (API는 지원하지만 붙어있는 화면이 없음) 닉네임/공개설정 변경은 지금은
+  보드 생성 시점에만 가능 - 별도 "보드 설정" 화면은 요청 범위 밖이라 안 만듦
+
+**검증**: 통합테스트 2개 추가(`boardService.test.ts` - public→unlisted 마이그
+레이션 정확성 + 멱등성, 실제 dev Firebase에 direct로 확인). 전체 테스트
+27개 통과. 실제 dev 서버로 커뮤니티공개+닉네임 보드 생성(응답에 nickname
+포함 확인) → 상세 페이지에 "커뮤니티공개" 라벨 렌더 확인 → 예전 `"public"`
+값 보내면 자동으로 `unlisted`로 폴백되는 것 확인(하위 호환) → private 보드
+접근 제어 회귀 없음 확인 → PATCH로 visibility/nickname 수정도 확인. 테스트
+데이터는 전부 정리.

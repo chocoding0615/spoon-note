@@ -8,10 +8,20 @@ export const SOURCE_META: Record<PlaceSource, { label: string; color: string; te
 };
 
 export const VISIBILITY_OPTIONS: { value: Visibility; label: string; description: string }[] = [
-  { value: "public", label: "전체공개", description: "누구나 열람할 수 있고, 보드 목록에도 노출돼요" },
-  { value: "unlisted", label: "일부공개", description: "링크를 아는 사람만 열람할 수 있어요" },
   { value: "private", label: "비공개", description: "나만 열람할 수 있어요" },
+  { value: "unlisted", label: "링크공유", description: "링크를 아는 사람만 열람할 수 있어요" },
+  { value: "community", label: "커뮤니티공개", description: "누구나 열람할 수 있고, 커뮤니티에도 노출돼요" },
 ];
+
+/** VISIBILITY_OPTIONS에서 값만 뽑은 배열 - API 라우트가 요청값 검증에 쓴다.
+ *  예전엔 라우트마다 이 목록을 따로 하드코딩해서 VISIBILITY_OPTIONS와 따로
+ *  놀 위험이 있었다(코드리뷰 지적 사항). */
+export const VISIBILITY_VALUES: Visibility[] = VISIBILITY_OPTIONS.map((option) => option.value);
+
+/** 커뮤니티공개 보드에 닉네임을 안 정했을 때 보여줄 기본 표시명 */
+export const DEFAULT_NICKNAME = "익명의 미식가";
+
+export const NICKNAME_STORAGE_KEY = "spoonnote:nickname";
 
 export const THEMES = ["기본", "여행", "데이트", "혼밥", "회식", "카페투어"] as const;
 
@@ -20,6 +30,7 @@ export const LIMITS = {
   freeEntriesPerBoard: 50,
   memoMaxLength: 200,
   titleMaxLength: 40,
+  nicknameMaxLength: 20,
   /** 폴더(저장 목록) 링크 한 번 가져오기로 미리보기에 보여줄 최대 개수 */
   importListMax: 100,
 } as const;

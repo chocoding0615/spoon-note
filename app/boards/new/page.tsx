@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { VisibilitySelector } from "@/components/board/VisibilitySelector";
 import { LIMITS } from "@/lib/constants";
 import { saveOwnerKey, useOwnedBoards } from "@/lib/utils/ownerKey";
+import { getNickname, saveNickname } from "@/lib/utils/nickname";
 import type { Board, Visibility } from "@/lib/types";
 
 export default function NewBoardPage() {
@@ -15,6 +16,8 @@ export default function NewBoardPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("unlisted");
+  // 이전에 커뮤니티공개로 만든 적 있으면 그때 쓴 닉네임을 미리 채워서 "재사용"되게 한다.
+  const [nickname, setNickname] = useState(() => getNickname());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -34,7 +37,12 @@ export default function NewBoardPage() {
       const res = await fetch("/api/boards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, description, visibility }),
+        body: JSON.stringify({
+          title,
+          description,
+          visibility,
+          nickname: visibility === "community" ? nickname : undefined,
+        }),
       });
 
       const data = await res.json();
@@ -45,6 +53,7 @@ export default function NewBoardPage() {
 
       const board = data.board as Board;
       saveOwnerKey(board.slug, board.ownerKey);
+      if (visibility === "community" && nickname.trim()) saveNickname(nickname.trim());
       router.push(`/b/${board.slug}?ownerKey=${board.ownerKey}`);
     } catch {
       setError("네트워크 오류가 발생했어요.");
@@ -85,7 +94,12 @@ export default function NewBoardPage() {
 
         <div>
           <label className="mb-2 block text-sm font-medium text-stone-700">공개 설정</label>
-          <VisibilitySelector value={visibility} onChange={setVisibility} />
+          <VisibilitySelector
+            value={visibility}
+            onChange={setVisibility}
+            nickname={nickname}
+            onNicknameChange={setNickname}
+          />
         </div>
 
         {error && <p className="text-sm text-red-500">{error}</p>}

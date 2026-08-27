@@ -14,6 +14,7 @@ export interface CreateBoardInput {
   description?: string;
   theme?: string;
   visibility: Visibility;
+  nickname?: string;
 }
 
 export async function createBoard(input: CreateBoardInput): Promise<Board> {
@@ -36,6 +37,7 @@ export async function createBoard(input: CreateBoardInput): Promise<Board> {
     description: input.description?.trim() || undefined,
     theme: input.theme,
     visibility: input.visibility,
+    nickname: input.nickname?.trim().slice(0, LIMITS.nicknameMaxLength) || undefined,
     ownerKey: randomUUID(),
     createdAt: Date.now(),
   };
@@ -76,6 +78,7 @@ export interface UpdateBoardInput {
   description?: string;
   theme?: string;
   visibility?: Visibility;
+  nickname?: string;
 }
 
 export async function updateBoard(
@@ -99,6 +102,9 @@ export async function updateBoard(
   if (patch.description !== undefined) update.description = patch.description.trim();
   if (patch.theme !== undefined) update.theme = patch.theme;
   if (patch.visibility !== undefined) update.visibility = patch.visibility;
+  if (patch.nickname !== undefined) {
+    update.nickname = patch.nickname.trim().slice(0, LIMITS.nicknameMaxLength) || undefined;
+  }
 
   await ref.update(update);
   return { ...board, ...update };
@@ -134,4 +140,22 @@ export async function deleteBoard(slug: string, ownerKey: string): Promise<boole
   );
 
   return true;
+}
+
+/** 공개설정 3단계 재구성(2026-08-27) 전에 만들어진 보드 중 예전 "public" 값을
+ *  가진 게 있으면 "unlisted"로 옮긴다. "public"은 예전에도 링크만 있으면 누구나
+ *  볼 수 있다는 뜻이었을 뿐 실제 커뮤니티 노출 기능은 없었으니, 새로 생긴
+ *  "community"로 자동 승격시키면 안 된다(사용자가 명시적으로 다시 선택해야 함).
+ *  Firestore는 스키마를 강제하지 않아 이 값이 남아있어도 조용히 실패하진
+ *  않지만, VISIBILITY_OPTIONS에 없는 값이라 라벨이 안 뜨는 등 화면이 깨진다.
+ *  멱등적이라 여러 번 실행해도 안전함 - 실행할 게 남아있으면 바뀐 문서 수를 반환. */
+export async function migratePublicVisibility(): Promise<number> {
+  const db = getDb();
+  const snap = await db.collection(BOARDS_COLLECTION).where("visibility", "==", "public").get();
+  if (snap.empty) return 0;
+
+  const batch = db.batch();
+  snap.docs.forEach((doc) => batch.update(doc.ref, { visibility: "unlisted" }));
+  await batch.commit();
+  return snap.size;
 }

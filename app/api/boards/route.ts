@@ -2,9 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createBoard, listBoardsByOwnerKeys } from "@/lib/services/boardService";
 import { ValidationError } from "@/lib/services/errors";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rateLimit";
+import { VISIBILITY_VALUES } from "@/lib/constants";
 import type { Visibility } from "@/lib/types";
-
-const VISIBILITY_VALUES: Visibility[] = ["public", "unlisted", "private"];
 
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request.headers);
@@ -39,6 +38,7 @@ export async function POST(request: NextRequest) {
       description: typeof data.description === "string" ? data.description : undefined,
       theme: typeof data.theme === "string" ? data.theme : undefined,
       visibility,
+      nickname: typeof data.nickname === "string" ? data.nickname : undefined,
     });
     return NextResponse.json({ board }, { status: 201 });
   } catch (error) {

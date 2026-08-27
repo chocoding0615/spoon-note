@@ -31,9 +31,9 @@ npm test
 ```
 
 `vitest` 사용. `lib/services/matching.test.ts`는 순수 로직만(Firestore 불필요),
-`lib/services/canonicalPlaceService.test.ts`는 `.env.local`의 실제 Firebase
-프로젝트에 direct로 붙는 통합 테스트(에뮬레이터 미구성) - 종료 시 테스트 데이터는
-자동 정리됨.
+`canonicalPlaceService.test.ts`/`boardService.test.ts`는 `.env.local`의 실제
+Firebase 프로젝트에 direct로 붙는 통합 테스트(에뮬레이터 미구성) - 종료 시
+테스트 데이터는 자동 정리됨.
 
 ## 알려진 이슈 (코드리뷰 결과)
 
@@ -49,6 +49,8 @@ npm test
   Vercel 엣지가 클라이언트가 보낸 `x-forwarded-for`를 덮어써서 이 배포 환경에서는
   스푸핑이 안 먹히는 걸 확인 - 코드 자체의 이론적 약점은 남아있지만(다른 플랫폼에
   배포하면 재검토 필요) 지금 당장 고칠 필요는 없다고 판단, 코드 변경 없이 종결
+- `VISIBILITY_VALUES` 하드코딩 - 공개설정 3단계 재구성 작업(2026-08-27) 때
+  `lib/constants.ts`에서 `VISIBILITY_OPTIONS`로부터 파생시키는 방식으로 정리
 
 ### 정확성 (남음)
 
@@ -70,8 +72,6 @@ npm test
 
 ### 재사용성 / 단순화 (남음)
 
-- `VISIBILITY_VALUES` 배열이 두 라우트에 하드코딩되어 `lib/constants.ts`의
-  `VISIBILITY_OPTIONS`와 따로 놀 위험(`app/api/boards/route.ts:6`)
 - `parseService.ts:112`의 `placeName` 폴백 체인에 절대 도달 안 하는 죽은 분기 있음
 
 ### 효율성 (남음)

@@ -1,5 +1,11 @@
 export type PlaceSource = "naver" | "kakao" | "google" | "manual";
-export type Visibility = "public" | "unlisted" | "private"; // 전체공개/일부공개(링크소지자)/비공개
+// 비공개(나만) / 링크공유(링크 아는 사람만) / 커뮤니티공개(누구나 + 커뮤니티 노출 대상).
+// 예전엔 "public"이 이 자리에 있었는데, 실제로는 "링크공유"랑 다를 게 없었다
+// (커뮤니티 노출 기능 자체가 없었음) - 새로 생긴 진짜 공개 개념과 이름이
+// 겹치면 혼란스러워서 "community"로 새로 만들고 예전 "public" 값은 폐기.
+// 기존에 그 값으로 저장된 문서는 boardService.migratePublicVisibility()로
+// "unlisted"로 옮긴다(커뮤니티에 자동 노출되면 안 되므로).
+export type Visibility = "private" | "unlisted" | "community";
 
 export interface Board {
   id?: string;
@@ -8,6 +14,8 @@ export interface Board {
   description?: string;
   theme?: string;
   visibility: Visibility;
+  /** 커뮤니티공개일 때 표시할 이름. 없으면 DEFAULT_NICKNAME으로 표시(읽는 시점에 폴백). */
+  nickname?: string;
   ownerKey: string;
   createdAt: number;
 }
