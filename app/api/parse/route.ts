@@ -32,7 +32,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "지원하지 않는 링크예요." }, { status: 400 });
   }
 
-  const parsed = await parseUrl(url).catch(() => null);
+  // 단축링크 리다이렉트 추적 등 외부 네트워크 왕복이 낀 작업이라 일시적인 실패에
+  // 취약하다(§import-list route와 동일한 이유, 2026-08-28 재현) - 한 번 재시도.
+  let parsed = await parseUrl(url).catch(() => null);
+  if (!parsed) parsed = await parseUrl(url).catch(() => null);
 
   return NextResponse.json({ parsed } satisfies ParseResponse);
 }

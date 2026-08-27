@@ -14,6 +14,11 @@ interface RouteParams {
   params: Promise<{ slug: string }>;
 }
 
+// 폴더 하나에 최대 200개(§googlePlacelist.ts 등)까지 페이지네이션으로 나눠 받다 보니
+// Vercel 기본 함수 실행 제한(10초)에 걸릴 수 있다 - 넉넉하게 늘려둔다(플랜 상한보다
+// 크면 Vercel이 알아서 상한으로 clamp함).
+export const maxDuration = 30;
+
 const PARSER_BY_SOURCE: Record<PlacelistSource, (url: string) => Promise<PlacelistResult | null>> = {
   naver: parseNaverPlacelist,
   google: parseGooglePlacelist,
@@ -61,14 +66,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "지원하지 않는 링크예요." }, { status: 400 });
   }
 
-  const detection = await detectPlacelist(url).catch(() => null);
+  // naver.me/kko.to 같은 단축링크는 실제 서비스(naver.com 등)까지 리다이렉트를
+  // 여러 홉 따라가야 해서 일시적인 네트워크 지연/오류에 특히 취약하다 - 실패하면
+  // "폴더 아님"과 똑같이 isPlacelist:false로 응답해버려서(§요청 5) 클라이언트가
+  // 원인을 구분 못하고 조용히 "인식 실패"로 넘어간다(실제로 이런 사례 재현됨,
+  // 2026-08-28). 한 번은 재시도해서 순간적인 실패는 넘기고, 그래도 안 되면
+  // 로그를 남겨 다음에 원인을 추적할 수 있게 한다.
+  let detection = await detectPlacelist(url).catch(() => null);
+  if (!detection) detection = await detectPlacelist(url).catch(() => null);
   if (!detection) {
+    console.error("[import-list] 폴더 링크 판별 실패(재시도 포함) - url 호스트:", new URL(url).hostname);
     return NextResponse.json({ isPlacelist: false } satisfies ImportListResponse);
   }
 
   let result: PlacelistResult | null;
   try {
     result = await PARSER_BY_SOURCE[detection.source](url);
+    if (!result) result = await PARSER_BY_SOURCE[detection.source](url); // 위와 같은 이유로 1회 재시도
   } catch (error) {
     console.error("[import-list] 파싱 실패:", error);
     result = null;
