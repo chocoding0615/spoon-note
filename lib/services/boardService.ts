@@ -3,8 +3,9 @@ import { FieldValue } from "firebase-admin/firestore";
 import { getDb } from "../firebaseAdmin";
 import { generateSlug } from "../utils/slug";
 import { LIMITS } from "../constants";
-import { ValidationError, OwnershipError } from "./errors";
+import { ValidationError, OwnershipError, AuthRequiredError, AgeRestrictedError } from "./errors";
 import { recordPlaceSave, removePlaceSave } from "./canonicalPlaceService";
+import { isBelowMinAge, type SessionUser } from "../session";
 import type { Board, Entry, Visibility } from "../types";
 
 const BOARDS_COLLECTION = "boards";
@@ -18,9 +19,13 @@ export interface CreateBoardInput {
   nickname?: string;
 }
 
-export async function createBoard(input: CreateBoardInput): Promise<Board> {
+export async function createBoard(input: CreateBoardInput, session?: SessionUser | null): Promise<Board> {
   const title = input.title.trim().slice(0, LIMITS.titleMaxLength);
   if (!title) throw new ValidationError("제목을 입력해주세요.");
+  // updateBoard와 동일한 게이팅 - "커뮤니티공개"는 생성 시점부터도 로그인 +
+  // 연령 확인이 필요하다. 여기서 안 막으면 새 보드를 곧장 community로
+  // 만들어서 updateBoard의 전환 검사를 완전히 우회할 수 있었다.
+  if (input.visibility === "community") assertCanGoCommunity(session);
 
   const db = getDb();
 
@@ -40,6 +45,7 @@ export async function createBoard(input: CreateBoardInput): Promise<Board> {
     visibility: input.visibility,
     nickname: input.nickname?.trim().slice(0, LIMITS.nicknameMaxLength) || undefined,
     ownerKey: randomUUID(),
+    userId: input.visibility === "community" && session ? session.uid : undefined,
     createdAt: Date.now(),
   };
 
@@ -141,10 +147,19 @@ async function syncCanonicalCountsOnVisibilityChange(
   }
 }
 
+/** "커뮤니티공개"로 전환하려면 로그인 + 연령 확인이 돼있어야 한다(§세션 설계안
+ *  03, 06 A안). session이 없으면 AuthRequiredError, 출생연도가 없거나(연령
+ *  미상 - 안전 우선으로 미성년자와 동일 취급) 만 14세 미만이면 AgeRestrictedError. */
+function assertCanGoCommunity(session: SessionUser | null | undefined): asserts session is SessionUser {
+  if (!session) throw new AuthRequiredError("커뮤니티공개로 바꾸려면 로그인이 필요해요.");
+  if (isBelowMinAge(session.birthYear)) throw new AgeRestrictedError();
+}
+
 export async function updateBoard(
   slug: string,
   ownerKey: string,
-  patch: UpdateBoardInput
+  patch: UpdateBoardInput,
+  session?: SessionUser | null
 ): Promise<Board | null> {
   const ref = getDb().collection(BOARDS_COLLECTION).doc(slug);
   const snap = await ref.get();
@@ -152,6 +167,9 @@ export async function updateBoard(
 
   const board = snap.data() as Board;
   if (board.ownerKey !== ownerKey) throw new OwnershipError();
+
+  const goingCommunity = patch.visibility === "community" && board.visibility !== "community";
+  if (goingCommunity) assertCanGoCommunity(session);
 
   const update: Partial<Board> = {};
   if (patch.title !== undefined) {
@@ -165,6 +183,9 @@ export async function updateBoard(
   if (patch.nickname !== undefined) {
     update.nickname = patch.nickname.trim().slice(0, LIMITS.nicknameMaxLength) || undefined;
   }
+  // 커뮤니티공개로 바뀌는 시점에 로그인돼 있었다는 뜻이니, 이 기회에 계정과
+  // 연결해둔다(전환 계기가 곧 로그인 계기라 자연스럽다 - §설계안 03).
+  if (goingCommunity && session) update.userId = session.uid;
 
   await ref.update(update);
 
@@ -173,6 +194,31 @@ export async function updateBoard(
   }
 
   return { ...board, ...update };
+}
+
+/** 로그인 후, 브라우저(localStorage)에 남아있는 ownerKey 보드들을 계정에
+ *  연결한다("내 계정으로 가져오기", §설계안 03). 이미 다른 계정에 연결된
+ *  보드는 건드리지 않는다 - ownerKey를 알고 있다고 해서 남의 계정 연결을
+ *  가로챌 수 있으면 안 되므로, 안전한 쪽(스킵)으로 처리한다. */
+export async function claimBoardsForAccount(uid: string, ownerKeys: string[]): Promise<number> {
+  const boards = await listBoardsByOwnerKeys(ownerKeys);
+  const unclaimed = boards.filter((board) => !board.userId);
+  if (unclaimed.length === 0) return 0;
+
+  const db = getDb();
+  const batch = db.batch();
+  unclaimed.forEach((board) => {
+    batch.update(db.collection(BOARDS_COLLECTION).doc(board.slug), { userId: uid });
+  });
+  await batch.commit();
+  return unclaimed.length;
+}
+
+/** 계정에 연결된 보드 목록 - localStorage가 사라져도(기기 변경 등) 로그인만
+ *  하면 그대로 보인다(§설계안 03 "부수 효과"). */
+export async function listBoardsByUserId(uid: string): Promise<Board[]> {
+  const snap = await getDb().collection(BOARDS_COLLECTION).where("userId", "==", uid).get();
+  return snap.docs.map((doc) => doc.data() as Board);
 }
 
 export async function deleteBoard(slug: string, ownerKey: string): Promise<boolean> {

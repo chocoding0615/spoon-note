@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createBoard, listBoardsByOwnerKeys } from "@/lib/services/boardService";
-import { ValidationError } from "@/lib/services/errors";
+import { ValidationError, AuthRequiredError, AgeRestrictedError } from "@/lib/services/errors";
+import { getSession } from "@/lib/session";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rateLimit";
 import { VISIBILITY_VALUES } from "@/lib/constants";
 import type { Visibility } from "@/lib/types";
@@ -33,18 +34,24 @@ export async function POST(request: NextRequest) {
     : "unlisted";
 
   try {
-    const board = await createBoard({
-      title: typeof data.title === "string" ? data.title : "",
-      description: typeof data.description === "string" ? data.description : undefined,
-      theme: typeof data.theme === "string" ? data.theme : undefined,
-      visibility,
-      nickname: typeof data.nickname === "string" ? data.nickname : undefined,
-    });
+    const session = await getSession();
+    const board = await createBoard(
+      {
+        title: typeof data.title === "string" ? data.title : "",
+        description: typeof data.description === "string" ? data.description : undefined,
+        theme: typeof data.theme === "string" ? data.theme : undefined,
+        visibility,
+        nickname: typeof data.nickname === "string" ? data.nickname : undefined,
+      },
+      session
+    );
     return NextResponse.json({ board }, { status: 201 });
   } catch (error) {
     if (error instanceof ValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+    if (error instanceof AuthRequiredError) return NextResponse.json({ error: error.message }, { status: 401 });
+    if (error instanceof AgeRestrictedError) return NextResponse.json({ error: error.message }, { status: 403 });
     console.error("[boards] 생성 실패:", error);
     return NextResponse.json({ error: "보드를 만들지 못했어요." }, { status: 500 });
   }

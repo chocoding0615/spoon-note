@@ -17,6 +17,10 @@ export interface Board {
   /** 커뮤니티공개일 때 표시할 이름. 없으면 DEFAULT_NICKNAME으로 표시(읽는 시점에 폴백). */
   nickname?: string;
   ownerKey: string;
+  /** 로그인 계정과 연결된 보드면 채워짐(§프롬프트 9 설계안) - 로그인 없이
+   *  만든 보드는 이 필드가 없어도 ownerKey만으로 계속 동작한다(비파괴적 확장).
+   *  "커뮤니티공개" 전환에는 이 연결이 필수다(boardService.updateBoard 참고). */
+  userId?: string;
   createdAt: number;
 }
 

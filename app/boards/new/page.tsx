@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
@@ -102,7 +103,19 @@ export default function NewBoardPage() {
           />
         </div>
 
-        {error && <p className="text-sm text-red-500">{error}</p>}
+        {error && (
+          <p className="text-sm text-red-500">
+            {error}
+            {error.includes("로그인") && (
+              <>
+                {" "}
+                <Link href="/my" className="font-medium underline">
+                  로그인하러 가기
+                </Link>
+              </>
+            )}
+          </p>
+        )}
 
         <Button type="submit" disabled={submitting || !title.trim()}>
           {submitting ? "만드는 중..." : "보드 만들기"}

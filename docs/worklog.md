@@ -4,6 +4,65 @@
 `CLAUDE.md`가 이 파일을 자동으로 불러오니 새 세션을 열면 자동으로 컨텍스트에
 들어간다. 오래된 항목은 필요 없어지면 지워도 된다.
 
+## 프롬프트 9 — 계정 시스템 (1~4단계: 소셜 로그인 + ownerKey 연결)
+
+설계안(승인됨) 순서대로 진행 - chemi-map(`C:\Users\admin\chemi-map`)의 로그인
+코드를 실제로 읽고 이식하는 것으로 시작. 이번 커밋 범위는 카카오·네이버
+로그인 + ownerKey↔계정 연결 + 커뮤니티공개 게이팅까지(이메일 회원가입은 다음
+커밋).
+
+**세션(`lib/session.ts`)** - chemi-map 구조 그대로: JWT 아니고 Firestore
+문서 기반 토큰(`sessions/{token}`, 30일, 로그아웃 시 문서 삭제로 즉시 무효화).
+`users/{provider}_{providerId}`로 결정적 uid. 쿠키 이름만
+`spoonnote_session`/`spoonnote_oauth_state`로 바꿈. `nanoid` 대신 이미
+쓰고 있던 `node:crypto`만으로 토큰 생성(새 의존성 안 늘림).
+
+**카카오·네이버 OAuth(`lib/oauth/`)** - chemi-map과 거의 동일하지만 한 가지
+의도적으로 다르게 함: chemi-map은 `age_range`(범위, "20~29")를 요청하는데
+스푼노트는 `birthyear`(정확한 연도)를 요청함 - 프롬프트 9 요구사항 4(만 14세
+미만 제한)를 범위값으로는 정확히 판정할 수 없어서(§설계안 artifact 06).
+**각 콘솔에서 별도 동의항목 활성화가 필요함**(카카오: "카카오 로그인" 상품 +
+"생년" 동의항목 + Redirect URI 등록, 네이버: 로그인용 앱 신규 등록 + "출생연도"
+제공항목 - 아직 안 돼있어서 실제 로그인은 카카오도 콘솔 설정 전까진 안 될 것으로
+예상, 네이버는 `NAVER_CLIENT_ID` 자체가 없어서 `/api/auth/naver/login`이
+501을 반환하는 것까지 확인함).
+
+**ownerKey ↔ 계정 연결** - `Board.userId?: string` 필드만 추가(비파괴적,
+마이그레이션 스크립트 불필요). `boardService.claimBoardsForAccount(uid,
+ownerKeys)` - 이미 다른 계정에 연결된 보드는 안 건드림(스킵). `POST
+/api/account/claim-boards`가 로그인 후 localStorage에 남은 ownerKey들을
+일괄 연결.
+
+**커뮤니티공개 게이팅** - `createBoard`/`updateBoard` 둘 다 visibility가
+"community"로 향할 때 `assertCanGoCommunity(session)` 체크(하나만 막으면
+다른 경로로 우회 가능해서 둘 다 막음 - 실제로 처음엔 updateBoard만 막았다가
+createBoard로 바로 community 생성하면 뚫린다는 걸 알아채고 추가함).
+로그인 안 함 → `AuthRequiredError`(401), 출생연도 없음(연령 미상, §설계안
+06 A안 - 안전 우선으로 미성년자와 동일 취급) 또는 만 14세 미만 →
+`AgeRestrictedError`(403). 전환 성공 시 그 자리에서 `userId` 자동 스탬프.
+
+**마이페이지(`/my`)** - 서버 컴포넌트로 전환(`getSession()`을 쓰려면
+`cookies()`가 필요해서). chemi-map `/my`의 로그인 전/후 분기 패턴을
+스푼노트 톤으로 계승(`AccountPanel`). "내 보드" 목록은 계정 연결 보드(서버,
+`userId` 기준)와 로컬 ownerKey 보드(클라이언트, 기존 로직)를 slug 기준으로
+합쳐서 하나로 보여줌(`MyBoardsList`) - 이미 계정에 연결된 보드도 로컬에
+ownerKey가 남아있어서 중복 제거가 필요했음.
+
+**검증**: 실제 OAuth 콘솔 설정이 아직 안 돼있어서(카카오 로그인 상품
+미활성화, 네이버 앱 미등록) 브라우저로 끝까지 로그인해볼 순 없었음 - 대신
+Firestore에 가짜 세션(성인/미성년 각 1명)을 직접 심어서 세션 쿠키로
+`/api/boards`(커뮤니티 생성 성공/미성년 차단), `/api/boards/[slug]`
+(PATCH 전환), `/api/account/claim-boards`, `/my`(로그인 전/후 렌더링),
+로그아웃(세션 무효화)까지 전부 실제로 호출해서 확인. 비로그인 상태로
+커뮤니티 전환/생성이 막히는 것과, 로그인 필요 없는 일반 전환(비공개↔
+링크공유)이 여전히 되는 회귀 확인도 함께 함. 테스트 데이터/가짜 세션 전부
+정리. `npm run build`, `npm run lint`, `npx vitest run`(39개) 통과.
+
+## 다음에 이어서 할 만한 것 - 프롬프트 9 잔여
+- 이메일 회원가입(Firebase Authentication 연동) - 다음 커밋
+- 실제 카카오/네이버 콘솔 설정(카카오 로그인 상품 활성화 + 생년 동의항목,
+  네이버 로그인 앱 신규 등록) 후 브라우저로 실제 로그인 재검증 필요
+
 ## 2026-08-27
 
 **로컬 개발 환경 구성**
